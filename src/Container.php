@@ -1,6 +1,6 @@
 <?php
 namespace RC;
-trait Container{
+class Container{
      /**
      * @var array
      */

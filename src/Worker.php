@@ -14,7 +14,6 @@ use Workerman\Connection\TcpConnection;
 use RC\Helper\GlobalData\Server as GlobalDataServer;
 use RC\Stopwatch;
 class worker{
-	use Container;
 	protected static $_frame = null;
 	protected static $_worker = null;
 	protected static $_request = null;

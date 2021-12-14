@@ -11,7 +11,6 @@ use RC\Exception\ExceptionHandler;
 use FastRoute\Dispatcher;
 use RC\Http\Workerman\Response as ResponseObj;
 class Controller{
-	use Container;
 	private static $_config = [];
 	private static $_pathparse = [];
 	private static $_callbacks = [];

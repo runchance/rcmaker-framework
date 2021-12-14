@@ -2,7 +2,6 @@
 namespace RC\Helper;
 use RC\Container;
 class Pdf{
-	use Container;
 	private $config = [];
 	public function __construct($config = array()){
 		$this->config = $config ;

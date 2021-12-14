@@ -2,7 +2,6 @@
 namespace RC;
 use RC\Container;
 class Middleware{
-    use Container;
 	protected static $_instances = [];
 
 

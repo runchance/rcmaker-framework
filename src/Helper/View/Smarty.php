@@ -11,7 +11,6 @@ use RC\Helper\Template\Smarty\Smarty as SmartyClass;
  */
 class Smarty implements View
 {
-    use Container;
     /**
      * @var array
      */

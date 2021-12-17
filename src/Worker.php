@@ -594,6 +594,9 @@ class worker{
 									foreach(($pconfig['bootstrap'] ?? []) as $bootstrap){
 										$bootstrap::start();
 									}
+									foreach (($pconfig['autoload'] ?? []) as $file) {
+								        include_once $file;
+								    }
 									$instance = Container::make($class, array_merge(['type'=>'swoole','worker'=>$server,'timer'=>\Swoole\Timer::class],$pconfig['constructor'] ?? []) ?? []);
 
 								}];
@@ -653,6 +656,9 @@ class worker{
 									foreach(($pconfig['bootstrap'] ?? []) as $bootstrap){
 										$bootstrap::start($server);
 									}
+									foreach (($pconfig('autoload') ?? []) as $file) {
+								        include_once $file;
+								    }
 								
 									
 									$instance = Container::make($class, array_merge(['type'=>'swoole','worker'=>$server,'timer'=>\Swoole\Timer::class],$pconfig['constructor'] ?? []));
@@ -891,6 +897,9 @@ class worker{
 				    	foreach(($config['bootstrap'] ?? []) as $bootstrap){
 							$bootstrap::start();
 						}
+						foreach (($config['autoload'] ?? []) as $file) {
+					        include_once $file;
+					    }
 			    		$instance = Container::make($class, array_merge(['type'=>'workerman','worker'=>$processworker,'timer'=>Timer::class],$config['constructor'] ?? []));
 			    		worker_bind($processworker, $instance);
 				    };

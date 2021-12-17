@@ -899,6 +899,10 @@ class Db{
 			case 'medoo':
 				if(strpos($field,',')!==false){
 					$field = explode(',',$field);
+				}else{
+					if($field!=='*'){
+						$field = [$field];
+					}
 				}
 				try {
 					if($this->medooOp=='rand'){
@@ -1155,6 +1159,10 @@ class Db{
 			case 'medoo':
 				if(strpos($field,',')!==false){
 					$field = explode(',',$field);
+				}else{
+					if($field!=='*'){
+						$field = [$field];
+					}
 				}
 				$totalWhere = $this->medooWhere;
 				unset($totalWhere['LIMIT']);
@@ -1279,6 +1287,10 @@ class Db{
 			case 'medoo':
 				if(strpos($field,',')!==false){
 					$field = explode(',',$field);
+				}else{
+					if($field!=='*'){
+						$field = [$field];
+					}
 				}
 				try {
 					if($this->medooJoin){
@@ -1339,6 +1351,10 @@ class Db{
 			case 'medoo':
 				if(strpos($field,',')!==false){
 					$field = explode(',',$field);
+				}else{
+					if($field!=='*'){
+						$field = [$field];
+					}
 				}
 				try {
 					if($this->group){

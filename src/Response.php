@@ -86,6 +86,7 @@ class Response{
         return;
     }
     private function log_list(){
+    	static $_client; static $_pingTimer;
     	$cli_log = Config::get('app','cli_log');
     	if($cli_log){
     		$log = [
@@ -101,14 +102,22 @@ class Response{
 			];
 			if(static::$_frame=='workerman'){
 				//异步通讯方式
-				static::$_client = static::$_client ?? new \Workerman\Connection\AsyncTcpConnection(Config::get('worker','logger_listen'));
+				$_client = $_client ?? new \Workerman\Connection\AsyncTcpConnection(Config::get('worker','logger_listen'));
 
-	    		static::$_client->send(json_encode($log));
+	    		$_client->send(json_encode(['type'=>'log','data'=>$log]));
 
-	    		static::$_client->onMessage = function($connection, $result){
+	    		$_client->onMessage = function($connection, $result){
 			         //$connection->close();
 			    };
-			    static::$_client->connect();
+			    $_client->connect();
+			    if($_pingTimer===null){
+			    	$_pingTimer = \Workerman\Lib\Timer::add(25, function() use ($_client){
+			    		$_client->send(json_encode(['type'=>'ping','data'=>'']));
+			    	});
+			    }
+			    
+
+
 			}
 			if(static::$_frame=='swoole'){
 				//内存方式

@@ -20,8 +20,9 @@ class Logger
     public function onMessage($connection, $data){
         $json_data = json_decode($data,true);
         $connection->send('ok');
-        static::$_data[] = $json_data;
-
+        if(isset($json_data['type']) && $json_data['type']=='log'){
+            static::$_data[] = $json_data['data'] ?? [];
+        }
     }
 
     public function start(){

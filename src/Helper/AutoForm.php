@@ -88,11 +88,7 @@ class AutoForm{
 				throw new \Exception((string)static::$msg['method_error'] ?? null);
 			}
 			if(is_array($rules)){
-				if($this->transferData){
-					$this->_data[$key] = $this->transferData[$transferkey] ?? null;
-				}else{
-					$this->_data[$key] =  $this->request->{$method}($transferkey);
-				}
+				$this->_data[$key] = isset($this->transferData[$key]) ? $this->transferData[$transferkey] : $this->request->{$method}($transferkey);
 				
 				$this->rule[$key] = $rules;
 				if($this->type=='list' || $this->type=='paginate'){

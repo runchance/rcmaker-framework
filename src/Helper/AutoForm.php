@@ -359,9 +359,9 @@ class AutoForm{
 				}
 			}
 
-			$this->tabledata = $paginate ? $base->order($order)->paginate($this->fields,$this->page ?? $this->limit) : $base->limit($this->limit)->order($order)->select($this->fields);	
+			$this->tabledata = $paginate ? $base->order($order)->paginate($this->fields,$this->page['listRows'] ?? $this->limit,$this->page['simple'] ?? false) : $base->limit($this->limit)->order($order)->select($this->fields);	
 		}else{
-			$this->tabledata = $paginate ? $base->order($order)->paginate($this->fields,$this->page ?? $this->limit) : $base->limit($this->limit)->order($order)->select($this->fields);
+			$this->tabledata = $paginate ? $base->order($order)->paginate($this->fields,$this->page['listRows'] ?? $this->limit,$this->page['simple'] ?? false) : $base->limit($this->limit)->order($order)->select($this->fields);
 		}
 		return true;
 	}

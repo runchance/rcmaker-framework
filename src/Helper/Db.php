@@ -1032,10 +1032,10 @@ class Db{
 		}
 	}
 
-	public function p($field='*',$listRows = null,$simple = false){
-		return $this->paginate($field,$listRows,$simple);
+	public function p($field='*',$listRows = null,$simple = false,$method = 'get'){
+		return $this->paginate($field,$listRows,$simple,$method);
 	}
-	public function paginate($field='*',$listRows = null,$simple = false){
+	public function paginate($field='*',$listRows = null,$simple = false,$method = 'get'){
 		$this->field = $field;
 		$this->build(['table','bind','join','where','whereExp','order','limit','group','having','lock']);
 		switch($this->engine){
@@ -1061,7 +1061,7 @@ class Db{
 		            $listRows = intval($listRows ?: $config['list_rows']);
 		            $config['list_rows'] = $listRows;
 		        }
-				$page = isset($config['page']) ? (int) $config['page'] : (int) $this->request->get($config['var_page']);
+				$page = isset($config['page']) ? (int) $config['page'] : (int) $this->request->{$method}($config['var_page']);
 		        $page = $page < 1 ? 1 : $page;
 		        $config['page'] = $page;
 				try {
@@ -1115,7 +1115,7 @@ class Db{
 		            $config['perPage'] = $listRows;
 
 		        }
-		        $page = isset($config['page']) ? (int) $config['page'] : (int) $this->request->get($config['pageName']);
+		        $page = isset($config['page']) ? (int) $config['page'] : (int) $this->request->{$method}($config['pageName']);
 		        $page = $page < 1 ? 1 : $page;
 		        $config['page'] = $page;
 				try {
@@ -1190,7 +1190,7 @@ class Db{
 		            $listRows = intval($listRows ?: $config['list_rows']);
 		        }
 
-		        $page = isset($config['page']) ? (int) $config['page'] : (int) $this->request->get($config['var_page']);
+		        $page = isset($config['page']) ? (int) $config['page'] : (int) $this->request->{$method}($config['var_page']);
 		        $page = $page < 1 ? 1 : $page;
 		        try {
 			        if (!isset($total) && !$simple) {

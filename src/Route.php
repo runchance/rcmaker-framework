@@ -8,6 +8,8 @@ class Route{
 	private static $_route = null;
 	private static $_hasRoute = false;
     private static $_fallback = null;
+    private static $_instance = null;
+    private $_middlewares = [];
 
 	public static function init(){
 		if(!self::$_disp){
@@ -20,14 +22,10 @@ class Route{
 	}
 
 	public static function group($path, $callbacks){
-        if($callbacks && is_array($callbacks)){
-        	$_route = self::$_route;
-			static::$_route->addGroup($path, function(RouteCollector $route) use ($callbacks){
-				foreach($callbacks as $callback){
-					self::$_route->addRoute($callback[0], $callback[1], $callback[2]);
-				}
-			});
-		}
+        $routeSatatic = static::$_instance =  new static;
+        $routeSatatic::$_route->addGroup($path,$callbacks);
+        static::$_instance = null;
+        return $routeSatatic;
     }
 
     public static function get($path, $callback){
@@ -73,10 +71,25 @@ class Route{
         return static::addRoute(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'], $path, $callback);
     }
 
+    public function middleware($middleware)
+    {
+        if ($middleware === null) {
+            return $this->_middlewares;
+        }
+        $this->_middlewares = array_merge($this->_middlewares, (array)$middleware);
+        return $this;
+    }
+
+    public function getMiddleware()
+    {
+        return $this->_middlewares;
+    }
+
     protected static function addRoute($method, $path, $callback){
-        static::$_hasRoute = true;
-        self::$_route->addRoute($method, $path, $callback);
-        return true;
+        $routeSatatic = static::$_instance ?? new static;
+        $routeSatatic::$_hasRoute = true;
+        $routeSatatic::$_route->addRoute($method, $path, ['callback' => $callback, 'route' => $routeSatatic]);
+        return $routeSatatic;
     }
 
     public static function fallback(callable $callback) {

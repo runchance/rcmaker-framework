@@ -11,11 +11,15 @@ use RC\Helper\Captcha\CaptchaBuilder;
 use RC\Helper\Captcha\PhraseBuilder;
 use RC\Helper\Validator;
 use RC\Helper\AutoForm;
+use RC\Helper\Token;
 use RC\Helper\Xlsx;
 use RC\Helper\Pdf;
+use RC\Helper\Sms;
+use RC\Helper\Mailer;
 use RC\Helper\QRcode;
 use RC\Helper\Curl\Curl;
 use RC\Helper\Curl\MultiCurl;
+use RC\Helper\Queue\RedisQueue\Client as queueClient;
 use RC\Http\Workerman\Response as ResponseObj;
 use Jenssegers\Mongodb\Connection as mongodbConnection;
 use RC\Helper\Db as SimpleDb;
@@ -76,6 +80,12 @@ function pdf($request,$config=[
     $instance = $tcpdf->get_Instance();
     $instance->request = $request;
     return $instance;
+}
+
+function queue($connection='default'){
+    static $queue;
+    $queue = $queue ?? queueClient::class;
+    return $queue::connection($connection);
 }
 
 function view($request,$template, $vars = []){
@@ -216,8 +226,98 @@ function xlsx(){
     return $xlsx;
 }
 
+function token($request,$guard = null,$cache = null){
+    static $token;
+    
+    if($guard === null){
+        $guard = Config::get('token','default');
+    }
+    if($cache === null){
+        $cache = cache();
+    }
+    $token[$guard] = $token[$guard] ?? new Token($request,$guard,$cache);
+    
+    return $token[$guard];
+}
+
+function sms($request,$method = 'post',$config = array(),$cache = null){
+    if($cache===null){
+        $cache = cache();
+    }
+    $config = array_merge(Config::get('sms'),$config);
+    return new Sms($request,$config,$method,$cache);
+}
+
+function mailer($connect=null){
+    static $mailer;
+    $connect = $connect ?? 'default';
+    if(!isset($mailer[$connect])){
+        $config = Config::get('mailer',$connect);
+        if(!$config){
+            throw new \Exception('no mailer config load!');
+        }
+        $mailer[$connect] = new Mailer($config);
+    }
+    return $mailer[$connect];
+}
+
+function curl($multiCurl = false){
+    static $curl;
+    if(!$multiCurl){
+        $curl['curl'] = $curl['curl'] ?? new Curl();
+        return $curl['curl'];
+    }
+    $curl['multiCurl'] = $curl['multiCurl'] ?? new MultiCurl();
+    return $curl['multiCurl'];
+}
+
+function simple_database($request,...$config){
+    return new SimpleDb($request, ... $config);
+}
+
+function cache($engine='',$type=null,$id=1,$class=null,$config=null){
+    static $CACHE,$_config,$_class;
+    if(!$engine){
+        $engine = Config::get('cache','default_frame') ?? ''; 
+    }
+    if(!isset($CACHE[$engine])){
+        if(!class_exists($class)){
+            throw new \Exception('cache engine '.$engine.' class['.$class.'] not load!');
+        }
+        if($config){
+            $_config[$engine] = $config;
+            $_class = $class;
+            $CACHE[$engine] = [];
+        }
+        return null;
+    }else{
+        $type = $type ?? $_config[$engine]['default'];;
+    }
+    if(!isset($CACHE[$engine])){
+        throw new \Exception('no db engine load!');
+    }
+    if($class){
+        return ;
+    }
+    if($type){
+        switch($engine){
+            case 'raw':
+                if(!isset($CACHE[$engine][$type]['id_'.$id])){
+                   $conf = $_config[$engine];
+                   $conf['stores'] = $conf['driver'];
+                   unset($conf['default_frame'],$conf['driver']);
+                   $_class::config($conf);
+                   
+                   $CACHE[$engine][$type]['id_'.$id] = $_class::store($type); 
+                }
+            break;
+        }
+    }
+    return $CACHE[$engine][$type]['id_'.$id];
+}
+
 function redis($engine='',$type=null,$id=1,$class=null,$clusterclass=null,$config=null){
-    static $RD,$_config,$_class,$_cluster_class;
+    static $RD,$_config,$_class,$_cluster_class,$_heartbeat;
     if(!$engine){
         $engine = Config::get('redis','default_frame') ?? ''; 
     }
@@ -227,8 +327,8 @@ function redis($engine='',$type=null,$id=1,$class=null,$clusterclass=null,$confi
         }
         if($config){
             $_config[$engine] = $config;
-            $_class = $class;
-            $_cluster_class = $clusterclass;
+            $_class[$engine] = $class;
+            $_cluster_class[$engine] = $clusterclass;
             $RD[$engine] = [];
         }
         return null;
@@ -246,33 +346,126 @@ function redis($engine='',$type=null,$id=1,$class=null,$clusterclass=null,$confi
         switch($engine){
             case 'raw':
                 if(!isset($_config[$engine]['connections'][$type])){
-                    throw new \Exception('no redis '.$type.' config set');
+                    if($config){
+                        $_config[$engine]['connections'][$type] = $config;
+                    }else{
+                       throw new \Exception('no redis '.$type.' config set'); 
+                    }
+                }
+                if(!isset($RD[$engine][$type]['id_'.$id])){
+                    $conf = $_config[$engine]['connections'][$type];
+                    $host = $conf['host'] ?? '';
+                    $port = $conf['port'] ?? 6379;
+                    $timeout =  $conf['timeout'] ?? 2;
+                    $read_timeout = $conf['read_timeout'] ?? $timeout;
+                    $persistent =  $conf['persistent'] ?? false;
+                    $password =  $conf['password'] ?? '';
+                    $select =  $conf['select'] ?? 'x';
+                    $database = $conf['database'] ?? 0;
+                    $prefix = $conf['prefix'] ?? '';
+                    if (extension_loaded('redis')) {
+                        if($conf['type']=='cluster'){
+                            $args = [null, $host, $timeout, $read_timeout, $persistent];
+                            if ($password) {
+                                $args[] = $password;
+                            }
+                            $RD[$engine][$type]['id_'.$id] = $redis = new $_cluster_class[$engine](...$args);
+                            if (!empty($prefix)) {
+                                $redis->setOption(\Redis::OPT_PREFIX, $prefix);
+                            }
+                            unset($redis);
+                        }else{
+                            $RD[$engine][$type]['id_'.$id] = $redis = new $_class[$engine];
+                            if($persistent){
+                                $redis->pconnect($host, (int) $port, $timeout, 'persistent_id_' . $select);
+                            }else{
+                                $redis->connect($host, (int) $port, $timeout);
+                            }
+                            $redis->setOption(\Redis::OPT_READ_TIMEOUT, $read_timeout);
+                            if ('' != $password) {
+                                $redis->auth($password);
+                            } 
+                            $redis->select($database);
+                            unset($redis);
+                        }
+                    } elseif (class_exists('\Predis\Client')) {
+                        $params = [];
+                        foreach ($conf as $key => $val) {
+                            if (in_array($key, ['aggregate', 'cluster', 'connections', 'exceptions', 'prefix', 'profile', 'replication', 'parameters'])) {
+                                $params[$key] = $val;
+                                unset($conf[$key]);
+                            }
+                        }
+                        if ('' == $password) {
+                            unset($conf['password']);
+                        }
+
+                        /*支持集群*/
+                        if($conf['type']=='cluster'){
+                            $params['cluster'] = 'redis';
+                            unset($conf['host']);
+                            $params = array_merge($conf,$params);
+                            $RD[$engine][$type]['id_'.$id] = new \Predis\Client($host, $params);
+                        }
+                        /*支持集群*/
+                        else{
+                            $RD[$engine][$type]['id_'.$id] = new \Predis\Client($conf, $params);
+                        }
+                        
+
+                        $conf['prefix'] = '';
+
+                    }
+                    
+                }
+                if(!isset($_heartbeat[$engine][$type]['id_'.$id]) && IS_CLI){
+                    $_heartbeat[$engine][$type]['id_'.$id] = Config::get('app','cli_frame');
+                    if($_heartbeat[$engine][$type]['id_'.$id]=='workerman'){
+                        \Workerman\Timer::add(240, function ()  use ($RD,$engine,$type,$id){
+                            $RD[$engine][$type]['id_'.$id]->get('ping');   
+                        });
+                    }
+                    if($_heartbeat[$engine][$type]['id_'.$id]=='swoole'){
+                        \Swoole\Timer::tick(24000, function ()  use ($RD,$engine,$type,$id){
+                            $RD[$engine][$type]['id_'.$id]->get('ping');    
+                        });
+                    }
+                }
+                
+            break;
+            case 'mix':
+                if(!isset($_config[$engine]['connections'][$type])){
+                    if($config){
+                        $_config[$engine]['connections'][$type] = $config;
+                    }else{
+                       throw new \Exception('no redis '.$type.' config set'); 
+                    }
                 }
                 $conf = $_config[$engine]['connections'][$type];
                 if($conf['type']=='cluster'){
-                    $RD[$engine][$type]['id_'.$id] = $RD[$engine][$type]['id_'.$id] ?? new $_cluster_class($conf);
+                    $RD[$engine][$type]['id_'.$id] = $RD[$engine][$type]['id_'.$id] ?? new $_cluster_class[$engine]($conf);
                 }else{
-                    $RD[$engine][$type]['id_'.$id] = $RD[$engine][$type]['id_'.$id] ?? new $_class($conf['host'],$conf['port'],$conf['password'] ?? '',$conf['database'],$conf['timeout'],$conf['retryInterval'],$conf['readTimeout']);
+                    $RD[$engine][$type]['id_'.$id] = $RD[$engine][$type]['id_'.$id] ?? new $_class[$engine]($conf['host'],$conf['port'],$conf['password'] ?? '',$conf['database'],$conf['timeout'],$conf['retryInterval'],$conf['readTimeout']);
                 }
-                
+                 if(!isset($_heartbeat[$engine][$type]['id_'.$id]) && IS_CLI){
+                    $_heartbeat[$engine][$type]['id_'.$id] = Config::get('app','cli_frame');
+                    if($_heartbeat[$engine][$type]['id_'.$id]=='workerman'){
+                        \Workerman\Timer::add(240, function ()  use ($RD,$engine,$type,$id){
+                            $RD[$engine][$type]['id_'.$id]->get('ping');   
+                        });
+                    }
+                    if($_heartbeat[$engine][$type]['id_'.$id]=='swoole'){
+                        \Swoole\Timer::tick(24000, function ()  use ($RD,$engine,$type,$id){
+                            $RD[$engine][$type]['id_'.$id]->get('ping');    
+                        });
+                    }
+                }
             break;
         }
     }
     return $RD[$engine][$type]['id_'.$id];
 }
-function curl($multiCurl = false){
-    static $curl;
-    if(!$multiCurl){
-        $curl['curl'] = $curl['curl'] ?? new Curl();
-        return $curl['curl'];
-    }
-    $curl['multiCurl'] = $curl['multiCurl'] ?? new MultiCurl();
-    return $curl['multiCurl'];
-}
 
-function simple_database($request,...$config){
-    return new SimpleDb($request, ... $config);
-}
 
 function database($engine='',$type=null,$id=1,$class=null,$config=null,$support=null){
     static $DB,$_config,$_class,$_support,$_heartbeat;
@@ -308,11 +501,15 @@ function database($engine='',$type=null,$id=1,$class=null,$config=null,$support=
             throw new \Exception('db driver ['.$type.'] not supported by db engine ['.$engine.'] yet!');
         }
         $default_type = $_config[$engine][0] ?? 'mysql';
-        $config = $_config[$engine][1] ?? [];
-
-        if(!$config){
-            throw new \Exception('no db '.$type.' config set');
+        $configTmp = $_config[$engine][1] ?? [];
+        if(!$configTmp){
+            if($config){
+                $configTmp = $config;
+            }else{
+               throw new \Exception('no db '.$type.' config set');  
+            }
         }
+        $config = $configTmp;
         switch($engine){
             case 'medoo':
                 $DB[$engine][$type]['id_'.$id] = $DB[$engine][$type]['id_'.$id] ?? new $_class[$engine]($config['connections'][$type]);
@@ -457,9 +654,18 @@ function stopwatch($eventname='__controller__'){
      return ['time'=>$endtime,'memory'=>$memory];
 }
 
+function base_path(){
+    return BASE_PATH;
+}
+
 function runtime_path(){
     return BASE_PATH."/runtime";
 }
+
+function ssl_path(){
+    return BASE_PATH."/ssl";
+}
+
 
 function public_path(){
     return BASE_PATH."/public";

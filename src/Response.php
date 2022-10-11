@@ -115,9 +115,6 @@ class Response{
 			    		$_client->send(json_encode(['type'=>'ping','data'=>'']));
 			    	});
 			    }
-			    
-
-
 			}
 			if(static::$_frame=='swoole'){
 				//内存方式

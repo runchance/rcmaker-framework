@@ -26,7 +26,13 @@ trait FileOperator{
             }
             return $maked;
        }
-       return \mkdir($path,$mode,$recursiv);
+       return \mkdir($path,$mode,$recursive);
+    }
+    public static function read($filename,$use_include_path = null,$context = null,$offset = 0,$maxlen = 0){
+        if(\is_file($filename)){
+            return ($maxlen > 0) ? file_get_contents($filename,$use_include_path,$context,$offset,$maxlen)  : file_get_contents($filename,$use_include_path,$context,$offset);
+        }
+        return false;
     }
     public static function move($data)
     {

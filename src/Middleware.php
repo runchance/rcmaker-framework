@@ -23,7 +23,15 @@ class Middleware{
                            $class =  $item;
                         }
                         if (\method_exists($class, 'handle')){
-                            static::$_instances[$app][] = [Container::get($class),'handle'];
+                            if(\strpos($app,'path:') !== false){
+                                $pathArr = explode('path:',$app);
+                                if(isset($pathArr[1])){
+                                    static::$_instances['__path__'][$pathArr[1]] = [Container::get($class),'handle'];
+                                }
+                            }else{
+                                static::$_instances[$app][] = [Container::get($class),'handle'];
+                            }
+                            
                         } 
                     }
                 }
@@ -50,13 +58,17 @@ class Middleware{
         }
     }
 
+    public static function getPathMiddleware(){
+        return static::$_instances['__path__'];
+    }
+
     public static function getMiddleware($app) {
         $global_middleware = static::$_instances[''] ?? [];
         if ($app === '') {
             return \array_reverse($global_middleware);
         }
         $app_middleware = static::$_instances[$app] ?? [];
-        return \array_reverse(\array_merge($global_middleware, $app_middleware));
+        return \array_reverse(\array_merge($global_middleware, $app_middleware, ));
     }
 
     public static function hasMiddleware($app){

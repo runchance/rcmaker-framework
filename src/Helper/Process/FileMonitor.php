@@ -18,7 +18,7 @@ class FileMonitor
 
     protected $_type = 'workerman';
 
-    protected $_staticmode = true;
+    protected $_staticMode = true;
 
     protected static $_static = [];
 
@@ -27,14 +27,14 @@ class FileMonitor
      * @param $monitor_dir
      * @param $monitor_extensions
      */
-    public function __construct($type,$work,$timer,$monitor_dir,$monitor_extensions,$staticmode=true)
+    public function __construct($type,$work,$timer,$monitor_dir,$monitor_extensions,$staticMode=true)
     {
         $this->_type = $type;
         $this->_paths = (array)$monitor_dir;
         $this->_extensions = $monitor_extensions;
         $this->_timer = $timer;
         $this->_work = $work;
-        $this->_staticmode = $staticmode;
+        $this->_staticMode = $staticMode;
         $this->start();
 
         
@@ -73,7 +73,7 @@ class FileMonitor
             if (!is_file($monitor_dir)) {
                 return;
             }
-            if($this->_staticmode){
+            if($this->_staticMode){
                 static::$_static[$monitor_dir]['iterator'] = static::$_static[$monitor_dir]['iterator'] ?? [new \SplFileInfo($monitor_dir)];
                 $iterator = static::$_static[$monitor_dir]['iterator'];
             }else{
@@ -81,7 +81,7 @@ class FileMonitor
             }
         } else {
             // recursive traversal directory
-            if($this->_staticmode){
+            if($this->_staticMode){
                 static::$_static[$monitor_dir]['dir_iterator'] = static::$_static[$monitor_dir]['dir_iterator'] ?? new \RecursiveDirectoryIterator($monitor_dir);
                 $dir_iterator = static::$_static[$monitor_dir]['dir_iterator'];
                 static::$_static[$monitor_dir]['iterator'] = static::$_static[$monitor_dir]['iterator'] ?? new \RecursiveIteratorIterator($dir_iterator);  

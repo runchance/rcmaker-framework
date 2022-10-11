@@ -130,46 +130,44 @@ class Controller{
 	}
 
 	protected static function routeMode($path, $key, $config, $request,$response){
-		static $route_init;
-		if($route_init===null){
+		static $routeInit;
+
+		if($routeInit===null){
 			Route::init();
-			$route_init = true;
+			$routeInit = true;
 		}
+         
 		$ret = Route::dispatch($request->method(), $path);
 		if($ret[0] === Dispatcher::FOUND) { //查找全局路由
 			$app = $controller = $action = '';
-			$handler = $ret[1];
+			$handler = $ret[1]['callback'];
+			$route = $ret[1]['route'];
+            $route = clone $route;
 			$args = !empty($ret[2]) ? $ret[2] : null;
+			if (\is_array($handler)) {
+				if($handler[0]==='__static__'){
+				    if ((isset($config['enable_static_file']) && $config['enable_static_file']) || !IS_CLI) {
+	    	        	if(self::staticMode($path, $key,$config,$request,$response,$handler[1])){
+	    	        		return null;
+	    	        	}
+	    	        }
+				}
+	            $handler = \array_values($handler);
+	            if (isset($handler[1]) && \is_string($handler[0]) && \class_exists($handler[0])) {
+	                $handler = [Container::get($handler[0]), $handler[1]];
+	            }
+	        }
+
 			if(is_callable($handler)){
-				$callback = static::getCallback($app, $handler, $request, $args);
+				$callback = static::getCallback($app, $handler, $request, $args, $route);
 				static::$_callbacks[$key] = [$callback, $app, $controller, $action, $args, false];
 				$request->setGet($args);
 				$request->app = ['app'=>$app,'controller'=>$controller,'action'=>$action,'class'=>null];
 				$response->response($app,$callback,$request);
 				return null;
 			}
-			$controller_class = $handler[0];
-			if($controller_class==='__static__'){
-			    if ((isset($config['enable_static_file']) && $config['enable_static_file']) || !IS_CLI) {
-    	        	if(self::staticMode($path, $key,$config,$request,$response,$handler[1])){
-    	        		return null;
-    	        	}
-    	        }
-			}
-			if(strpos($controller_class,'\\')!==false){
-				list($app,$controller) = static::parseController($controller_class);
-			}else{
-				$controller = $controller_class;
-			}
-			$action = $handler[1] ?? $controller;
-			if($args){
-				self::$_mb['args'] = $args;
-			}
-			if($app){
-				self::$_mb['app'] = $app;
-			}
-			self::$_mb['controller'] = $controller;
-			self::$_mb['action'] = $action;
+			
+
 		}
 		return true;
 	}
@@ -225,10 +223,17 @@ class Controller{
         return true;
 	}
 
-    protected static function getCallback($app, $call, $request, $args = null)
+    protected static function getCallback($app, $call, $request, $args = null,$route = null)
     {
         $args = $args === null ? null : \array_values($args);
-        $middleware = Middleware::getMiddleware($app);
+        $middlewares = [];
+        if ($route) {
+            $route_middlewares = \array_reverse($route->getMiddleware());
+            foreach ($route_middlewares as $class_name) {
+                $middlewares[] = [Container::get($class_name), 'handle'];
+            }
+        }
+        $middleware =  \array_merge($middlewares, Middleware::getMiddleware($app));
         if ($middleware) {
         	$callback = array_reduce($middleware,function($carry, $item){
         		return function ($request) use ($carry, $item) {
@@ -386,7 +391,7 @@ class Controller{
 				}
 			}else{
 				if($appname==$app){
-					if(isset($config['route']) && $config['route']===true){
+					if(isset($config['route']) && $config['route']===true && $appcount==1){
 						$controller = $explode[0] ?? ($config['index'][0] ?? $controller);
 						$action = $explode[1] ?? ($config['index'][1] ?? $action);
 						$getParm = array_slice($explode, 2);
@@ -395,7 +400,6 @@ class Controller{
 				}
 			}
 		}
-
 		$args = self::parseParams($getParm);
 		self::$_mb = array_merge([
 			'app'=>$app,

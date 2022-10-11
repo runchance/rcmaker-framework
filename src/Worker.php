@@ -242,6 +242,11 @@ class worker{
 				    ]]);
 				    
 				}
+
+				if(Config::get('queue','enable')){
+				     $process_config = array_merge($process_config, Config::get('queue','consumer_process') ?? []);
+			    }
+
 				foreach ($process_config as $proc_name => $pconfig) {
 					if(!isset($pconfig['handler'])){
 						exit("\033[31;40mprocess error: process handler not exists!\033[0m\n");
@@ -283,6 +288,14 @@ class worker{
 									$instance = Container::make($class, array_merge(['type'=>'swoole','worker'=>$process,'timer'=>\Swoole\Timer::class],$pconfig['constructor'] ?? []) ?? []);
 									
 								}, false, 0, true);
+								
+								foreach(($pconfig['bootstrap'] ?? []) as $bootstrap){
+									$bootstrap::start();
+								}
+								foreach (($pconfig['autoload'] ?? []) as $file) {
+							        include_once $file;
+							    }
+							    
 								$process->name($proc_name);
 								$server->addProcess($process);
 								$processes[] = [$proc_name,'process',$pconfig['bootstrap'] ?? []];
@@ -408,7 +421,6 @@ class worker{
 
 				$server->on('WorkerStart',function($server,$workid) use ($start_app,$processes,&$config){
 					static::$_workid = $workid;
-
 				    Config::get('app',null,true);
 				    $config = Config::get('swoole',null,true);
 					\error_reporting(Config::get('app','error_types') ?? E_ALL &~E_NOTICE &~E_STRICT &~E_DEPRECATED);
@@ -552,6 +564,12 @@ class worker{
 				    ]]);
 				    
 				}
+
+				if(Config::get('queue','enable')){
+				     $process_config = array_merge($process_config, Config::get('queue','consumer_process') ?? []);
+			    }
+
+	
 
 				foreach ($process_config as $proc_name => $pconfig) {
 					if(!isset($pconfig['handler'])){
@@ -861,6 +879,9 @@ class worker{
 			       'count'  => 1,
 			       'reusePort' => true
 			    ]]);
+			}
+			if(Config::get('queue','enable')){
+				$process_config = array_merge($process_config, Config::get('queue','consumer_process') ?? []);
 			}
 			foreach ($process_config as $proc_name => $config) {
 				if (isset($config['handler'])) {

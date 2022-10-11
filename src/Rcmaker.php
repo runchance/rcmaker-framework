@@ -14,6 +14,17 @@
 	class Rcmaker{
 		public static function start(){
 			static $requests;
+			if(defined('IS_SCRIPT')){
+			    $id = 999999;
+		        $requests[$id] = $requests[$id] ?? new Request($id);
+			    foreach ((Config::get('autoload') ?? []) as $file) {
+			        include_once $file;
+			    }
+			    foreach ((Config::get('bootstrap') ?? []) as $class_name) {
+					$class_name::start($requests[$id]);
+				}
+				return null;
+			}
 			if(IS_CLI){
 				Worker::load();
 				return null;

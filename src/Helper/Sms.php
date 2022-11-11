@@ -30,15 +30,20 @@ class Sms{
     // 错误信息
     protected $error = '';
     // 手机号字段名
-    protected $mobileName = 'mobile';
+    protected $mobileKey = 'mobile';
     // 验证码字段名
-    protected $codeName = 'code';
+    protected $codeKey = 'code';
     // 传递参数方法
     protected $method = 'post';
+     //ip验证
+    protected $ipCheck = true;
+    //验证成功后自动删除缓存
+    protected $autoDelte = true;
     // 手动传入手机号
     protected $_mobile;
     // 手动传入验证码
     protected $_code;
+
 
 
 
@@ -49,7 +54,7 @@ class Sms{
      * TpSms constructor.
      * @param array $config
      */
-    public function __construct($request, array $config = [], $method = 'post', $cache = null)
+    public function __construct($request, array $config = [], $method = 'get', $cache = null)
     {
     	$this->request = $request;
     	$this->cache = $cache;
@@ -99,13 +104,24 @@ class Sms{
     }
 
     /**
+     * 指定有效时间，单位秒
+     * @param int $code
+     * @return $this
+     */
+    public function exp(int $second)
+    {
+        $this->expire = $second;
+        return $this;
+    }
+
+    /**
      * 生成验证码
      * @return string
      * @throws \Exception
      */
     public function create(): string
     {
-        $mobile = $this->_mobile ?? $this->request->{$this->method}($this->mobileName);
+        $mobile = $this->_mobile ?? $this->request->{$this->method}($this->mobileKey);
 
         if (!$mobile) {
         	throw new \Exception((string)static::$msg['no_mobile'] ?? null);
@@ -152,7 +168,7 @@ class Sms{
             // 缓存
         $cacheKey = $this->cachePrefix.$this->scene.$mobile;
             // 增加ip验证
-        $cacheVal = $this->code.ip2long($this->request->ip());
+        $cacheVal = $this->code.($this->ipCheck ? ip2long($this->request->ip()) : '');
         $this->cache->set($cacheKey,$cacheVal,$this->expire);
         return $this->code;
     }
@@ -172,21 +188,22 @@ class Sms{
      */
     public function check(): bool
     {
-        $mobile = $this->_mobile ?? $this->request->{$this->method}($this->mobileName);
+        $mobile = $this->_mobile ?? $this->request->{$this->method}($this->mobileKey);
         if (!$mobile) {
             throw new \Exception((string)static::$msg['no_mobile'] ?? null);
         }
-        $code = $this->_code ?? $this->request->{$this->method}($this->codeName);
+        $code = $this->_code ?? $this->request->{$this->method}($this->codeKey);
         if (!$code) {
             throw new \Exception((string)static::$msg['no_code'] ?? null);
         }
             // 缓存
         $cacheKey = $this->cachePrefix.$this->scene.$mobile;
             // 获取缓存验证码
-        $cacheCode = $this->cache->get($cacheKey);
+        $cacheCode = $this->autoDelte ? $this->cache->pull($cacheKey) : $this->cache->get($cacheKey);
         if($cacheCode){
             // 增加ip验证
-            if ($cacheCode === $code.ip2long($this->request->ip())){
+            if ($cacheCode === ($this->ipCheck ? $code.ip2long($this->request->ip()) : $code)){
+
                 return true;
             }
             $this->error = (string)static::$msg['invalid_code'] ?? null;

@@ -191,21 +191,53 @@ function sessions($request,$key = null, $default = null){
     }
     return $session->get($key, $default);
 }
-function captcha($request,$name = 'captcha', $length = 5, $phrase=[], $charset = 'abcdefghijklmnpqrstuvwxyz123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'){
-    static $builder,$PhraseBuilder;
+function captcha($request, $connect = 'default', $closure = null,$cache=null){
+    static $builder,$PhraseBuilder,$config;
+    $config[$connect] = $config[$connect] ?? Config::get('captcha',$connect);
+    if(!$config[$connect]){
+        throw new \Exception('captcha config error '.$connect.' not exsits');
+    }
+    $name = $config[$connect]['name'] ?? 'captcha';
+    $length = $config[$connect]['length'] ?? 5;
+    $phrase = $config[$connect]['phrase'] ?? [];
+    $charset = $config[$connect]['charset'] ?? 'abcdefghijklmnpqrstuvwxyz123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    $store = $config[$connect]['store'] ?? 'cache';
+    $return = $config[$connect]['return'] ?? 'image';
     $key = (is_array($phrase) ? json_encode($phrase) : $phrase).'_'.$length.'_'.$charset;
     $phraseBuilder[$key] = $phraseBuilder[$key] ?? new PhraseBuilder($length, $charset);
     // 初始化验证码类
     $builder[$key] = new CaptchaBuilder(null,$phraseBuilder[$key]);
     // 生成验证码
     $builder[$key]->build(...$phrase);
-    // 将验证码的值存储到session中
-    sessions($request,[$name=>strtolower($builder[$key]->getPhrase())]);
+    // 将验证码的值存储到设定的容器或闭包函数里
+    switch(strtolower($store)){
+        case 'cache':
+        default:
+           $cache = $cache ?? cache();
+           $cache->set($name,strtolower($builder[$key]->getPhrase()));
+        break;
+        case 'session':
+            sessions($request,[$name=>strtolower($builder[$key]->getPhrase())]); 
+        break;
+        case 'closure':
+            if($closure instanceof Closure){
+                $closure($name,strtolower($builder[$key]->getPhrase()));
+            }
+        break;
+    }
     // 获得验证码图片二进制数据
     $img_content = $builder[$key]->get();
     // 输出验证码二进制数据
+    switch(strtolower($return)){
+        case 'image':
+        default:
+            return response($request,$img_content, 200, ['Content-Type' => 'image/jpeg']);
+        break;
+        case 'text':
+            return strtolower($builder[$key]->getPhrase());
+        break;
+    }
     return response($request,$img_content, 200, ['Content-Type' => 'image/jpeg']);
-    
 }
 
 function download($request,$file,$download_name=''){
@@ -240,7 +272,7 @@ function token($request,$guard = null,$cache = null){
     return $token[$guard];
 }
 
-function sms($request,$method = 'post',$config = array(),$cache = null){
+function sms($request,$method = 'get',$config = array(),$cache = null){
     if($cache===null){
         $cache = cache();
     }
@@ -593,13 +625,13 @@ function cliCheck($check_func_map = []){
     {
         $disable_func_map = array_flip(explode(",", $disable_func_string));
     }
-    if(!version_compare(phpversion(), "7.2.0", ">="))
+    if(!version_compare(phpversion(), "7.3.0", ">="))
     {
       $check = false;
-      $returns[] = "\033[31;40mPHP version mast be >= 7.2.0\033[0m \n";
-      $returns[] = "\033[31;40mPHP version mast be >= 7.2.0\033[0m \n";
-      $returns[] = "\033[31;40mPHP version mast be >= 7.2.0\033[0m \n";
-      $returns[] = "\033[31;40mPHP version mast be >= 7.2.0\033[0m \n";
+      $returns[] = "\033[31;40mPHP version mast be >= 7.3.0\033[0m \n";
+      $returns[] = "\033[31;40mPHP version mast be >= 7.3.0\033[0m \n";
+      $returns[] = "\033[31;40mPHP version mast be >= 7.3.0\033[0m \n";
+      $returns[] = "\033[31;40mPHP version mast be >= 7.3.0\033[0m \n";
     }
     foreach($check_func_map as $func)
     {

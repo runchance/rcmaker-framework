@@ -697,7 +697,9 @@ class Validator{
 
 			if(($rule['required']===false || (isset($this->length[0]) && $this->length[0]===0)) && ($value=='' || $value==null)){
 				unset($this->fail[$field]);
-                
+                if($value===''){
+                    $values[$field] = '';
+                }
 			}else{
 				if(!$this->checkfield($value,$options)){
 	            	if(is_callable($callable)){

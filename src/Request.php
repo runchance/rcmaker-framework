@@ -12,7 +12,7 @@ class Request{
 	protected $_get = array();
 	public $app = [null,null,null];
 	public $RCresponse = null;
-	protected static $injection = ['response','R','json','xml','jsonp','redirect','pdf','P','view','V','model','M','qrcode','Q','setcookies','SC','getcookies','GC','sessions','S','captcha','C','download','D','autoForm','AF','simple_database','SDB','token','T','sms'];
+	protected static $injection = ['response','R','json','xml','jsonp','redirect','pdf','P','view','V','model','M','qrcode','Q','setcookies','SC','getcookies','GC','sessions','S','captcha','C','download','D','autoForm','AF','simple_database','SDB','token','T','sms','captchaCheck','CC'];
 	public function __construct($id)
     {
         $this->id = $id;

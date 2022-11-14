@@ -191,13 +191,48 @@ function sessions($request,$key = null, $default = null){
     }
     return $session->get($key, $default);
 }
-function captcha($request, $connect = 'default', $closure = null,$cache=null){
+function captchaCheck($request,$name = '', $value = '',$connect = 'default', $cache=null){
+    if(!$value){
+        throw new \Exception('captcha value is empty');
+    }
+    $config[$connect] = $config[$connect] ?? Config::get('captcha',$connect);
+    if(!$config[$connect]){
+        throw new \Exception('captcha config error '.$connect.' not exsits');
+    }
+    $namePrefix = $config[$connect]['namePrefix'] ?? 'RC_CAPTCHA_';
+    $store = $config[$connect]['store'] ?? 'cache';
+    $autoDelte = $config[$connect]['autoDelte'] ?? true;
+    $name = $namePrefix.$name;
+    $cache = $cache ?? cache();
+    switch(strtolower($store)){
+        case 'cache':
+        default:
+           $cache = $cache ?? cache();
+           $cacheCode = $autoDelte ? $cache->pull($name) : $cache->get($name);
+           if($cacheCode===$value){
+                return true;
+           }
+        break;
+        case 'session':
+            $session = $request->session();
+            $cacheCode = $autoDelte ? $session->pull($name) : $session->get($name);
+            if($cacheCode===$value){
+                return true;
+            }
+        break;
+    }
+    return false;
+}
+function captcha($request, $name = '', $connect = 'default', $closure = null,$cache=null){
     static $builder,$PhraseBuilder,$config;
     $config[$connect] = $config[$connect] ?? Config::get('captcha',$connect);
     if(!$config[$connect]){
         throw new \Exception('captcha config error '.$connect.' not exsits');
     }
-    $name = $config[$connect]['name'] ?? 'captcha';
+    
+    $expire = $config[$connect]['expire'] ?? 300;
+    $namePrefix = $config[$connect]['namePrefix'] ?? 'RC_CAPTCHA_';
+    $name = $namePrefix.$name;
     $length = $config[$connect]['length'] ?? 5;
     $phrase = $config[$connect]['phrase'] ?? [];
     $charset = $config[$connect]['charset'] ?? 'abcdefghijklmnpqrstuvwxyz123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -214,14 +249,14 @@ function captcha($request, $connect = 'default', $closure = null,$cache=null){
         case 'cache':
         default:
            $cache = $cache ?? cache();
-           $cache->set($name,strtolower($builder[$key]->getPhrase()));
+           $cache->set($name,strtolower($builder[$key]->getPhrase()),$expire);
         break;
         case 'session':
             sessions($request,[$name=>strtolower($builder[$key]->getPhrase())]); 
         break;
         case 'closure':
             if($closure instanceof Closure){
-                $closure($name,strtolower($builder[$key]->getPhrase()));
+                $closure($name,strtolower($builder[$key]->getPhrase()),$expire);
             }
         break;
     }

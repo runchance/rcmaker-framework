@@ -13,6 +13,7 @@ use RC\Helper\Validator;
 use RC\Helper\AutoForm;
 use RC\Helper\Token;
 use RC\Helper\Xlsx;
+use RC\Helper\XlsxReader;
 use RC\Helper\Pdf;
 use RC\Helper\Sms;
 use RC\Helper\Mailer;
@@ -287,10 +288,10 @@ function validator(){
     return new validator();
 }
 
-function xlsx(){
+function xlsx($target = 'writer'){
     static $xlsx;
-    $xlsx = $xlsx ?? new Xlsx();
-    return $xlsx;
+    $xlsx[$target] = $xlsx[$target] ?? ($target=='writer' ? new Xlsx() : new XlsxReader());
+    return $xlsx[$target];
 }
 
 function token($request,$guard = null,$cache = null){
@@ -813,6 +814,75 @@ function getFilesize($size,$decimals=2){
   }
   $size /= pow(1024, $p);
   return number_format($size, $decimals).' '.$format;
+}
+
+function R($request,$body = '', $status = 200, $headers = array()){
+    return response($request,$body, $status, $headers);
+}
+function P($request,$config=[
+    'orientation'=>'P',
+    'unit'=>'mm',
+    'format'=>'A4',
+    'unicode'=>true,
+    'encoding'=>'UTF-8',
+    'diskcache'=>false
+]){
+    return pdf($request,$config);
+
+}
+function T($request,$guard = null,$cache = null){
+  return token($request,$guard,$cache);
+}
+function V($request,$template, $vars = []){
+    return view($request,$template,$vars);
+}
+function M($request,$model=null,$app=null,$constructor=[]){
+  return model($request,$model,$app,$constructor);
+}
+function ML($connect=null){
+  return mailer($connect);
+}
+function Q($request,$text,$format = 'png',$outfile = false, $level = 0, $size = 3, $margin = 4,$saveandprint=false){
+  return qrcode($request,$text,$format,$outfile, $level, $size, $margin,$saveandprint);
+}
+function SC($request,$keyvalue = [], $expires = 0, $path = '', $domain = '', $secure = false, $http_only = false){
+  return setcookies($request,$keyvalue,$expires,$path,$domain,$secure,$http_only);
+}
+function GC($request, $key = null, $default = null){
+    return getcookies($request,$key,$default);
+}
+function S($request,$key = null, $default = null){
+    return sessions($request,$key,$default);
+}
+function C($request, $name = '', $connect = 'default', $closure = null,$cache=null){
+    return captcha($request,$name,$connect,$closure,$cache);
+}
+function CC($request,$name = '', $value = '',$connect = 'default', $cache=null){
+    return captchaCheck($request,$name,$value,$connect,$cache);
+}
+function D($request,$file,$download_name=''){
+    return download($request,$file,$download_name);
+}
+function AF($request,$vars){
+    return autoForm($request,$vars);
+}
+function VD(){
+    return validator();
+}
+function X($target = 'writer'){
+    return xlsx($target);
+}
+function SDB($request,...$config){
+    return simple_database($request,... $config);
+}
+function RD($engine='',$type=null,$id=1,$class=null,$clusterclass=null,$config=null){
+  return redis($engine,$type,$id,$class,$clusterclass,$config);
+}
+function DB($engine='',$type=null,$id=1,$class=null,$config=null,$support=null){
+    return database($engine,$type,$id,$class,$config,$support);
+}
+function PY($charset = 'utf-8'){
+    return pinyin($charset);
 }
 
 if(Config::get('app','count')===true){

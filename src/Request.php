@@ -73,8 +73,10 @@ class Request{
 			}else{
 				$files = isset($_FILES[$name]) ? $_FILES[$name] : null;
 			}
+		}else{
+			$req = static::$_request['id_'.$this->id];
 		}
-		$req = static::$_request['id_'.$this->id];
+		
 		if($frame=='workerman' && $req){
 			$files = $req->file($name);
 

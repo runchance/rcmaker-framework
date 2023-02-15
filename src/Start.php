@@ -295,17 +295,13 @@ function xlsx($target = 'writer'){
 }
 
 function token($request,$guard = null,$cache = null){
-    static $token;
-    
     if($guard === null){
         $guard = Config::get('token','default');
     }
     if($cache === null){
         $cache = cache();
     }
-    $token[$guard] = $token[$guard] ?? new Token($request,$guard,$cache);
-    
-    return $token[$guard];
+    return new Token($request,$guard,$cache);
 }
 
 function sms($request,$method = 'get',$config = array(),$cache = null){

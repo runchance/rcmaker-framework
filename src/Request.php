@@ -44,6 +44,13 @@ class Request{
 	}
 
 	public function ip(){
+        $remoteIp = $this->remoteIp();
+        return $this->header('x-real-ip', $this->header('x-forwarded-for',
+            $this->header('client-ip', $this->header('x-client-ip',
+                $this->header('via', $remoteIp)))));
+    }
+
+	public function remoteIp(){
 		$frame = static::$_frame;
 		if(!IS_CLI || !$frame){
 			if (getenv("HTTP_CLIENT_IP") && strcasecmp(getenv("HTTP_CLIENT_IP"), "unknown")) $ip = getenv("HTTP_CLIENT_IP"); 
@@ -241,13 +248,13 @@ class Request{
 			if(!$var){
 				return $req->cookie();
 			}
-			return $default ? $req->cookie($var,$default) : $req->cookie($var);
+			return isset($default) ? $req->cookie($var,$default) : $req->cookie($var);
 		}
 		if($frame=='swoole' && $req){
 			if(!$var){
 				return $req->cookie;
 			}
-			return $default ? ($req->cookie[$var] ?? $default) : ($req->cookie[$var] ?? '');
+			return isset($default) ? ($req->cookie[$var] ?? $default) : ($req->cookie[$var] ?? '');
 		}
 		return null;
 
@@ -272,13 +279,13 @@ class Request{
 			if(!$var){
 				return $req->header();
 			}
-			return $default ? $req->header($var,$default) : $req->header($var);
+			return isset($default) ? $req->header($var,$default) : $req->header($var);
 		}
 		if($frame=='swoole' && $req){
 			if(!$var){
 				return $req->header;
 			}
-			return $default ? ($req->header[$var] ?? $default) : ($req->header[$var] ?? '');
+			return isset($default) ? ($req->header[$var] ?? $default) : ($req->header[$var] ?? '');
 		}
 		return null;
 	}
@@ -321,13 +328,13 @@ class Request{
 			if(!$var){
 				return array_merge($this->_get,$req->get() ?? []);
 			}
-			return $default ? ($req->get($var) ?? ($this->_get[$var] ?? $default)) : ($req->get($var) ?? ($this->_get[$var] ?? null));
+			return isset($default) ? ($req->get($var) ?? ($this->_get[$var] ?? $default)) : ($req->get($var) ?? ($this->_get[$var] ?? null));
 		}
 		if($frame=='swoole' && $req){
 			if(!$var){
 				return array_merge($this->_get,$req->get ?? []);
 			}
-			return $default ? ($req->get[$var] ?? ($this->_get[$var] ?? $default)) : ($req->get[$var] ?? ($this->_get[$var] ?? null));
+			return isset($default) ? ($req->get[$var] ?? ($this->_get[$var] ?? $default)) : ($req->get[$var] ?? ($this->_get[$var] ?? null));
 		}
 		return $default ?? '';
 	}
@@ -342,13 +349,13 @@ class Request{
 			if(!$var){
 				return $req->post();
 			}
-			return $default ? $req->post($var,$default) : ($req->post($var) ?? null);
+			return isset($default) ? $req->post($var,$default) : ($req->post($var) ?? null);
 		}
 		if($frame=='swoole' && $req){
 			if(!$var){
 				return $req->post;
 			}
-			return $default ? ($req->post[$var] ?? $default) : ($req->post[$var] ?? null);
+			return isset($default) ? ($req->post[$var] ?? $default) : ($req->post[$var] ?? null);
 		}
 		return $default ?? '';
 	}

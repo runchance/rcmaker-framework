@@ -210,14 +210,14 @@ function captchaCheck($request,$name = '', $value = '',$connect = 'default', $ca
         default:
            $cache = $cache ?? cache();
            $cacheCode = $autoDelte ? $cache->pull($name) : $cache->get($name);
-           if($cacheCode===$value){
+           if($cacheCode===strtolower($value)){
                 return true;
            }
         break;
         case 'session':
             $session = $request->session();
             $cacheCode = $autoDelte ? $session->pull($name) : $session->get($name);
-            if($cacheCode===$value){
+            if($cacheCode===strtolower($value)){
                 return true;
             }
         break;

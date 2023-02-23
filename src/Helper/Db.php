@@ -870,17 +870,7 @@ class Db{
 			break;
 			case 'medoo':
 				try {
-				    $where = null;
-				    if($this->medooWhere && !$this->medooWhereRaw){
-				        $where = $this->medooWhere;
-				    }elseif(!$this->medooWhere && $this->medooWhereRaw){
-				        $where = $this->medooWhereRaw;
-				    }elseif($this->medooWhere && $this->medooWhereRaw){
-				        $where = $this->medooWhereRaw;
-				        $this->connect->buildRCWhere($this->medooWhere);
-				    }else{
-				        $where = [];
-				    }
+				    $where = $this->medooBuildWhere();
 					$result = $this->connect->delete($this->table,$where);
 					return $result;
 				}catch(\Throwable $ex){

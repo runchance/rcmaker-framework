@@ -203,7 +203,7 @@ function captchaCheck($request,$name = '', $value = '',$connect = 'default', $ca
     $namePrefix = $config[$connect]['namePrefix'] ?? 'RC_CAPTCHA_';
     $store = $config[$connect]['store'] ?? 'cache';
     $autoDelte = $config[$connect]['autoDelte'] ?? true;
-    $name = $namePrefix.$name;
+    $name = md5($namePrefix.$name.$request->ip().strtolower($value));
     $cache = $cache ?? cache();
     switch(strtolower($store)){
         case 'cache':
@@ -233,7 +233,6 @@ function captcha($request, $name = '', $connect = 'default', $closure = null,$ca
     
     $expire = $config[$connect]['expire'] ?? 300;
     $namePrefix = $config[$connect]['namePrefix'] ?? 'RC_CAPTCHA_';
-    $name = $namePrefix.$name;
     $length = $config[$connect]['length'] ?? 5;
     $phrase = $config[$connect]['phrase'] ?? [];
     $charset = $config[$connect]['charset'] ?? 'abcdefghijklmnpqrstuvwxyz123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -245,6 +244,8 @@ function captcha($request, $name = '', $connect = 'default', $closure = null,$ca
     $builder[$key] = new CaptchaBuilder(null,$phraseBuilder[$key]);
     // 生成验证码
     $builder[$key]->build(...$phrase);
+    // 生成验证码储存key
+    $name = md5($namePrefix.$name.$request->ip().strtolower($builder[$key]->getPhrase()));
     // 将验证码的值存储到设定的容器或闭包函数里
     switch(strtolower($store)){
         case 'cache':

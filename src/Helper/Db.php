@@ -220,7 +220,7 @@ class Db{
 
 	private function removeOption(array $opts){
 		foreach($opts as $opt){
-			if($opt=='medooWhereRaw' && isset($this->{$opt})){
+			if($opt=='medooWhereRaw' && strtolower($this->engine)=='medoo'){
 			    $this->connect->buildRCWhere([]);
 			}
 			$this->{$opt} = null;
@@ -1264,24 +1264,24 @@ class Db{
 			        		if($this->group){
 			        			\ob_start();
 								if($this->medooJoin){
-			        			 	$this->connect->debug()->count($this->table,$this->medooJoin ?? null,$field,$where);
+			        			 	$this->connect->debug()->count($this->table,$this->medooJoin ?? null,'*',$where);
 			        			 }else{
-			        			 	$this->connect->debug()->count($this->table,$field,$where);
+			        			 	$this->connect->debug()->count($this->table,'*',$where);
 			        			 }
 								$subsql = \ob_get_clean();
 			        			$total = $this->connect->count('<custom>('.$subsql.') AS count','*',[]);
 			        		}else{
-			        			$total = (int) $this->connect->count($this->table,$this->medooJoin ?? null,$field,$totalWhere ?? []);
+			        			$total = (int) $this->connect->count($this->table,$this->medooJoin ?? null,'*',$totalWhere ?? []);
 			        		}
 							$result = $this->connect->select($this->table,$this->medooJoin ?? null,$field,$where);
 						}else{
 							if($this->group){
 								\ob_start();
-								 $this->connect->debug()->count($this->table,$field,$totalWhere ?? []);
+								 $this->connect->debug()->count($this->table,'*',$totalWhere ?? []);
 								$subsql = \ob_get_clean();
 			        			$total = $this->connect->count('<custom>('.$subsql.') AS count','*',[]);
 			        		}else{
-			        			$total = (int) $this->connect->count($this->table,$field,$totalWhere ?? []);
+			        			$total = (int) $this->connect->count($this->table,'*',$totalWhere ?? []);
 			        		}
 							$result = $this->connect->select($this->table,$field,$where);
 						}

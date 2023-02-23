@@ -220,10 +220,10 @@ class Db{
 
 	private function removeOption(array $opts){
 		foreach($opts as $opt){
-			$this->{$opt} = null;
-			if($opt=='medooWhereRaw'){
+			if($opt=='medooWhereRaw' && isset($this->{$opt})){
 			    $this->connect->buildRCWhere([]);
 			}
+			$this->{$opt} = null;
 		}
 	}
 

@@ -10,7 +10,7 @@ class Medoo implements Bootstrap{
      *
      * @return void
      */
-	public static $_version = '2.1.3';
+	public static $_version = '2.1.8';
 	public static $support = ['mysql','sqlite','pgsql','sqlsrv','oracle','sybase'];
 	private static $_config = null;
 

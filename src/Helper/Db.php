@@ -30,6 +30,7 @@ class Db{
 	private $instance = null;
 	private $medooJoin = null;
 	private $medooWhere = null;
+	private $medooWhereRaw = null;
 	private $medooOp = null;
 	private static $_Query =null;
 	private static $_Builder =null;
@@ -121,7 +122,7 @@ class Db{
 
 	public function table($t=null){
 		$this->table = $t;
-		$this->removeOption(['join','where','whereExp','order','offset','limit','group','lock','error','medooJoin','medooWhere','medooOp']);
+		$this->removeOption(['join','where','whereExp','order','offset','limit','group','lock','error','medooJoin','medooWhere','medooWhereRaw','medooOp']);
 		return $this;
 	}
 
@@ -220,6 +221,9 @@ class Db{
 	private function removeOption(array $opts){
 		foreach($opts as $opt){
 			$this->{$opt} = null;
+			if($opt=='medooWhereRaw'){
+			    $this->connect->buildRCWhere([]);
+			}
 		}
 	}
 
@@ -306,8 +310,8 @@ class Db{
 								$joinTable = str_ireplace(' AS ','',$this->table);
 								$joinTable = $tableExp[0].'('.end($tableExp).')';
 							}
-							$joinOn = explode('.',$join[2]);
-							$this->medooJoin[$joinTable][$join[1]] = count($joinOn) > 1 ? $joinOn[1] : $join[2];
+							$joinOn = explode('.',$join[1]);
+							$this->medooJoin[$joinTable][$join[2]] = count($joinOn) > 1 ? $joinOn[1] : $join[1];
 						}
 					break;
 				}
@@ -372,7 +376,26 @@ class Db{
 										$this->medooWhere[$where[0]] = $where[1];
 									}
 									if($countWhere>2){
-										$op = $where[1];
+									    if($countWhere==3){
+									       $joiner = $where[2] ?? 'AND';
+									       if(in_array(strtolower($joiner),['or','and'])){
+									           $op = '=';
+									           $whereVal = $where[1];
+									       }else{
+									           $op = $where[1];
+									           $joiner = 'AND';
+									           $whereVal = $where[2];
+									       }
+									    }else{
+									       $op = $where[1]; 
+									       $joiner = $where[3] ?? 'AND';
+									       $whereVal = $where[2];
+									    }
+									    if(in_array(strtolower($op),['between','bt','wb','not between','not between','nbt','wnb','in','wi'])){
+										    if(!is_array($whereVal)){
+										        $whereVal = explode(',',$whereVal);
+										    }
+										}
 										switch(strtolower($op)){
 											case 'between': case 'bt': case 'wb':
 												$op = '<>';
@@ -396,23 +419,24 @@ class Db{
 												$op = '!';
 												$where[2] = null;
 											break;
-											case '=':
+											case '=': case 'in': case 'wi':
 												$op = null;
 											break;
+											
 										}
-										$joiner = $where[3] ?? 'AND';
+										
 										if(strtolower($joiner)=='or'){
 											if($this->medooWhere){
 												$medooWhere = $this->medooWhere;
 												$this->medooWhere = null;
 												if(isset($medooWhere['OR'])){
 													$this->medooWhere['OR'] = $medooWhere['OR'];
-													$this->medooWhere['OR'][$where[0].'['.$op.']'] = $where[2];
+													$this->medooWhere['OR'][$where[0].'['.$op.']'] = $whereVal;
 												}elseif(isset($medooWhere['AND'])){
 													$this->medooWhere['AND'] = $medooWhere['AND'];
-													$this->medooWhere['AND']['OR'][$where[0].'['.$op.']'] = $where[2];
+													$this->medooWhere['AND']['OR'][$where[0].'['.$op.']'] = $whereVal;
 												}else{
-													$this->medooWhere['OR'][$where[0].'['.$op.']'] = $where[2];
+													$this->medooWhere['OR'][$where[0].'['.$op.']'] = $whereVal;
 													foreach($medooWhere as $key=>$mwhere){
 														if(count($medooWhere)>1){
 															$this->medooWhere['OR']['AND'][$key] = $mwhere;
@@ -422,7 +446,7 @@ class Db{
 													}
 												}
 											}else{
-												$this->medooWhere['OR'][$where[0].'['.$op.']'] = $where[2];
+												$this->medooWhere['OR'][$where[0].'['.$op.']'] = $whereVal;
 											}
 											
 										}else{
@@ -430,22 +454,23 @@ class Db{
 												$medooWhere = $this->medooWhere;
 												$this->medooWhere = null;
 												if(isset($medooWhere['AND']) || isset($medooWhere['OR'])){
-													$this->medooWhere['AND'][$where[0].'['.$op.']'] = $where[2];
+													$this->medooWhere['AND'][$where[0].'['.$op.']'] = $whereVal;
 													if(isset($medooWhere['OR'])){
 														$this->medooWhere['AND']['OR'] = $medooWhere['OR'];
 													}
 												}else{
 													$this->medooWhere = $medooWhere;
-													$this->medooWhere[$where[0].'['.$op.']'] = $where[2];
+													$this->medooWhere[$where[0].'['.$op.']'] = $whereVal;
 												}
 											}else{
-												$this->medooWhere[$where[0].'['.$op.']'] = $where[2]; 	
+												$this->medooWhere[$where[0].'['.$op.']'] = $whereVal; 	
 											}
 										}
 									}
 								}
 							}else{
-								$this->medooWhere = Medoo::raw('WHERE '.$where);
+							    
+								$this->medooWhereRaw = Medoo::raw('WHERE '.$where);
 							}
 							
 						}
@@ -845,7 +870,18 @@ class Db{
 			break;
 			case 'medoo':
 				try {
-					$result = $this->connect->delete($this->table,$this->medooWhere ?? []);
+				    $where = null;
+				    if($this->medooWhere && !$this->medooWhereRaw){
+				        $where = $this->medooWhere;
+				    }elseif(!$this->medooWhere && $this->medooWhereRaw){
+				        $where = $this->medooWhereRaw;
+				    }elseif($this->medooWhere && $this->medooWhereRaw){
+				        $where = $this->medooWhereRaw;
+				        $this->connect->buildRCWhere($this->medooWhere);
+				    }else{
+				        $where = [];
+				    }
+					$result = $this->connect->delete($this->table,$where);
 					return $result;
 				}catch(\Throwable $ex){
 					$this->error = $ex->getMessage();
@@ -856,7 +892,50 @@ class Db{
 			break;
 		}
 	}
-
+	protected function medooParseFields($field):mixed{
+	    if(empty($field) || $field=='*'){
+	       $field = '*';
+	    }else{
+	       $field = explode(',',$field);  
+	    }
+	    if(!is_array($field)){
+	        return $field;
+	    }
+	    foreach($field as $key=>$f){
+	        $field[$key] = trim($field[$key]);
+	        preg_match('/(?<fn>(sum|min|max|count|avg))?(?:\(\s+|\()?((?<field>.*?))?(?:\s+\)|\))?((?:\s+|\s+AS\s+)(?<alias>\w+))?$/i', $f, $match);
+	        if($match){
+	            if(!empty($match['fn']) && !empty($match['field'])){
+	               unset($field[$key]);
+	               $key = $match['field'];
+	               if(!empty($match['alias'])){
+	                   $key.='('.$match['alias'].')';
+	               }
+	               $field[$key] = Medoo::raw("".$match['fn']."(".$match['field'].")");
+	            }
+	            if(!empty($match['alias']) && !empty($match['field']) && empty($match['fn'])){
+	               $newkey=$match['field'].'('.$match['alias'].')';
+	               $field[$key] = $newkey;
+	            }
+	        }
+	       
+	    }
+		return $field;
+	}
+	protected function medooBuildWhere(){
+	    $where = null;
+	    if($this->medooWhere && !$this->medooWhereRaw){
+	        $where = $this->medooWhere;
+	    }elseif(!$this->medooWhere && $this->medooWhereRaw){
+	        $where = $this->medooWhereRaw;
+	    }elseif($this->medooWhere && $this->medooWhereRaw){
+	        $where = $this->medooWhereRaw;
+	        $this->connect->buildRCWhere($this->medooWhere);
+	    }else{
+	        $where = [];
+	    }
+	    return $where;
+	}
 	public function f($field='*'){
 		return $this->find($field);
 	}
@@ -884,7 +963,7 @@ class Db{
 						$this->connect::enableQueryLog();
 					}
 					$result = $this->conn->select(... explode(',',$field))->first();
-					return $result;
+					return $result ?? $result->toArray();
 				}catch(\Throwable $ex){
 					$this->error = $ex->getMessage();
 					return false;
@@ -897,15 +976,9 @@ class Db{
 				}
 			break;
 			case 'medoo':
-				if(strpos($field,',')!==false){
-					$field = explode(',',$field);
-				}else{
-					if($field!=='*'){
-						$field = [$field];
-					}
-				}
+				$field = $this->medooParseFields($field);
 				try {
-					if($this->medooOp=='rand'){
+					if($this->medooOp=='rand' || $this->medooWhereRaw){
 						if(isset($this->medooWhere['LIMIT'])){
 							if(is_array($this->medooWhere['LIMIT'])){
 								$this->medooWhere['LIMIT'][1] = 1;
@@ -914,11 +987,11 @@ class Db{
 							$this->medooWhere['LIMIT'] = 1;
 						}
 					}
-
+					$where = $this->medooBuildWhere();
 					if($this->medooJoin){
-						$result = $this->medooOp ? $this->connect->{$this->medooOp}($this->table,$this->medooJoin ?? null,$field,$this->medooWhere ?? []) : $this->connect->get($this->table,$this->medooJoin ?? null,$field,$this->medooWhere ?? []);
+						$result = $this->medooOp ? $this->connect->{$this->medooOp}($this->table,$this->medooJoin ?? null,$field,$where) : $this->connect->get($this->table,$this->medooJoin ?? null,$field,$where);
 					}else{
-						$result = $this->medooOp ? $this->connect->{$this->medooOp}($this->table,$field,$this->medooWhere ?? []) : $this->connect->get($this->table,$field,$this->medooWhere ?? []);
+						$result = $this->medooOp ? $this->connect->{$this->medooOp}($this->table,$field,$where) : $this->connect->get($this->table,$field,$where);
 					}
 					return $this->medooOp=='rand' ? ($result[0] ?? null) : $result;
 				}catch(\Throwable $ex){
@@ -1019,7 +1092,8 @@ class Db{
 			break;
 			case 'medoo':
 				try {
-					$result = $this->connect->update($this->table,$data,$this->medooWhere ?? []);
+				    $where = $this->medooBuildWhere();
+					$result = $this->connect->update($this->table,$data,$where);
 					$this->insertid = $this->connect->id();
 					return $result;
 				}catch(\Throwable $ex){
@@ -1157,16 +1231,16 @@ class Db{
 				return $result;
 			break;
 			case 'medoo':
-				if(strpos($field,',')!==false){
-					$field = explode(',',$field);
-				}else{
-					if($field!=='*'){
-						$field = [$field];
-					}
-				}
+				$field = $this->medooParseFields($field);
 				$totalWhere = $this->medooWhere;
-				unset($totalWhere['LIMIT']);
-				unset($totalWhere['ORDER']);
+				if($totalWhere){
+				   if(isset($totalWhere['LIMIT'])){
+				   	 unset($totalWhere['LIMIT']);
+				   }
+				   if(isset($totalWhere['ORDER'])){
+				   	 unset($totalWhere['ORDER']);
+				   }
+				}
 				if (is_int($simple)) {
 		            $total  = $simple;
 		            $simple = false;
@@ -1192,23 +1266,24 @@ class Db{
 
 		        $page = isset($config['page']) ? (int) $config['page'] : (int) $this->request->{$method}($config['var_page']);
 		        $page = $page < 1 ? 1 : $page;
+		        $this->medooWhere['LIMIT'] = [($page - 1) * $listRows,$listRows];
+				$where = $this->medooBuildWhere();
 		        try {
 			        if (!isset($total) && !$simple) {
 			        	if($this->medooJoin){
 			        		if($this->group){
 			        			\ob_start();
 								if($this->medooJoin){
-			        			 	$this->connect->debug()->count($this->table,$this->medooJoin ?? null,$field,$this->medooWhere ?? []);
+			        			 	$this->connect->debug()->count($this->table,$this->medooJoin ?? null,$field,$where);
 			        			 }else{
-			        			 	$this->connect->debug()->count($this->table,$field,$this->medooWhere ?? []);
+			        			 	$this->connect->debug()->count($this->table,$field,$where);
 			        			 }
 								$subsql = \ob_get_clean();
 			        			$total = $this->connect->count('<custom>('.$subsql.') AS count','*',[]);
 			        		}else{
 			        			$total = (int) $this->connect->count($this->table,$this->medooJoin ?? null,$field,$totalWhere ?? []);
 			        		}
-				        	$this->medooWhere['LIMIT'] = [($page - 1) * $listRows,$listRows];
-							$result = $this->connect->select($this->table,$this->medooJoin ?? null,$field,$this->medooWhere ?? []);
+							$result = $this->connect->select($this->table,$this->medooJoin ?? null,$field,$where);
 						}else{
 							if($this->group){
 								\ob_start();
@@ -1218,25 +1293,20 @@ class Db{
 			        		}else{
 			        			$total = (int) $this->connect->count($this->table,$field,$totalWhere ?? []);
 			        		}
-							$this->medooWhere['LIMIT'] = [($page - 1) * $listRows,$listRows];
-							$result = $this->connect->select($this->table,$field,$this->medooWhere ?? []);
+							$result = $this->connect->select($this->table,$field,$where);
 						}
 			        } elseif ($simple) {
 			  			if($this->medooJoin){
-				        	$this->medooWhere['LIMIT'] = [($page - 1) * $listRows,$listRows];
-							$result = $this->connect->select($this->table,$this->medooJoin ?? null,$field,$this->medooWhere ?? []);
+							$result = $this->connect->select($this->table,$this->medooJoin ?? null,$field,$where);
 						}else{
-							$this->medooWhere['LIMIT'] = [($page - 1) * $listRows,$listRows];
-							$result = $this->connect->select($this->table,$field,$this->medooWhere ?? []);
+							$result = $this->connect->select($this->table,$field,$where);
 						}
 			            $total   = null;
 			        } else {
 			            if($this->medooJoin){
-				        	$this->medooWhere['LIMIT'] = [($page - 1) * $listRows,$listRows];
-							$result = $this->connect->select($this->table,$this->medooJoin ?? null,$field,$this->medooWhere ?? []);
+							$result = $this->connect->select($this->table,$this->medooJoin ?? null,$field,$where);
 						}else{
-							$this->medooWhere['LIMIT'] = [($page - 1) * $listRows,$listRows];
-							$result = $this->connect->select($this->table,$field,$this->medooWhere ?? []);
+							$result = $this->connect->select($this->table,$field,$where);
 						}
 			        }
 			        return new Paginator($total, $listRows, $page, $path, $result);
@@ -1260,7 +1330,7 @@ class Db{
 			case 'think':
 				try {
 					$result = $this->conn->field($field)->select();
-					return $result;
+					return $result ?? $result->toArray();
 				}catch(\Throwable $ex){
 					$this->error = $ex->getMessage();
 					return false;
@@ -1285,18 +1355,14 @@ class Db{
 				} 
 			break;
 			case 'medoo':
-				if(strpos($field,',')!==false){
-					$field = explode(',',$field);
-				}else{
-					if($field!=='*'){
-						$field = [$field];
-					}
-				}
+				$field = $this->medooParseFields($field);
+				
+				$where = $this->medooBuildWhere();
 				try {
 					if($this->medooJoin){
-						$result = $this->medooOp ? $this->connect->{$this->medooOp}($this->table,$this->medooJoin ?? null,$field,$this->medooWhere ?? []) : $this->connect->select($this->table,$this->medooJoin ?? null,$field,$this->medooWhere ?? []);
+						$result = $this->medooOp ? $this->connect->{$this->medooOp}($this->table,$this->medooJoin ?? null,$field,$where) : $this->connect->select($this->table,$this->medooJoin ?? null,$field,$where);
 					}else{
-						$result = $this->medooOp ? $this->connect->{$this->medooOp}($this->table,$field,$this->medooWhere ?? []) : $this->connect->select($this->table,$field,$this->medooWhere ?? []);
+						$result = $this->medooOp ? $this->connect->{$this->medooOp}($this->table,$field,$where) : $this->connect->select($this->table,$field,$where);
 					}
 					return $result;
 				}catch(\Throwable $ex){
@@ -1349,28 +1415,23 @@ class Db{
 				} 
 			break;
 			case 'medoo':
-				if(strpos($field,',')!==false){
-					$field = explode(',',$field);
-				}else{
-					if($field!=='*'){
-						$field = [$field];
-					}
-				}
+				$field = $this->medooParseFields($field);
+				$where = $this->medooBuildWhere();
 				try {
 					if($this->group){
 	        			\ob_start();
 	        			 if($this->medooJoin){
-	        			 	$this->connect->debug()->count($this->table,$this->medooJoin ?? null,$field,$this->medooWhere ?? []);
+	        			 	$this->connect->debug()->count($this->table,$this->medooJoin ?? null,$field,$where);
 	        			 }else{
-	        			 	$this->connect->debug()->count($this->table,$field,$this->medooWhere ?? []);
+	        			 	$this->connect->debug()->count($this->table,$field,$where);
 	        			 }
 						$subsql = \ob_get_clean();
 	        			$result = $this->connect->count('<custom>('.$subsql.') AS count','*',[]);
 	        		}else{
 	        			if($this->medooJoin){
-							$result = $this->medooOp ? $this->connect->{$this->medooOp}($this->table,$this->medooJoin ?? null,$field,$this->medooWhere ?? []) : $this->connect->count($this->table,$this->medooJoin ?? null,$field,$this->medooWhere ?? []);
+							$result = $this->medooOp ? $this->connect->{$this->medooOp}($this->table,$this->medooJoin ?? null,$field,$where) : $this->connect->count($this->table,$this->medooJoin ?? null,$field,$where);
 						}else{
-							$result = $this->medooOp ? $this->connect->{$this->medooOp}($this->table,$field,$this->medooWhere ?? []) : $this->connect->count($this->table,$field,$this->medooWhere ?? []);
+							$result = $this->medooOp ? $this->connect->{$this->medooOp}($this->table,$field,$where) : $this->connect->count($this->table,$field,$where);
 						}
 	        		}
 					
@@ -1384,8 +1445,6 @@ class Db{
 			break;
 		}
 	}
-
-
 
 	public function agg($fun,$field){
 		$fun = $fun ? strtolower($fun) : null;
@@ -1423,10 +1482,11 @@ class Db{
 			break;
 			case 'medoo':
 				try {
+				    $where = $this->medooBuildWhere();
 					if($this->medooJoin){
-						$result = $this->medooOp ? $this->connect->{$this->medooOp}($this->table,$this->medooJoin ?? null,$field,$this->medooWhere ?? []) : $this->connect->{$fun}($this->table,$this->medooJoin ?? null,$field,$this->medooWhere ?? []);
+						$result = $this->medooOp ? $this->connect->{$this->medooOp}($this->table,$this->medooJoin ?? null,$field,$where) : $this->connect->{$fun}($this->table,$this->medooJoin ?? null,$field,$where);
 					}else{
-						$result = $this->medooOp ? $this->connect->{$this->medooOp}($this->table,$field,$this->medooWhere ?? []) : $this->connect->{$fun}($this->table,$field,$this->medooWhere ?? []);
+						$result = $this->medooOp ? $this->connect->{$this->medooOp}($this->table,$field,$where) : $this->connect->{$fun}($this->table,$field,$where);
 					}
 					return $result;
 				}catch(\Throwable $ex){

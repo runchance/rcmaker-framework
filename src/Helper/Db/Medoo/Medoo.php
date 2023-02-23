@@ -6,10 +6,10 @@ declare(strict_types=1);
  *
  * The Lightweight PHP Database Framework to Accelerate Development.
  *
- * @version 2.1.3
+ * @version 2.1.8
  * @author Angel Lai
  * @package Medoo
- * @copyright Copyright 2021 Medoo Project, Angel Lai.
+ * @copyright Copyright 2023 Medoo Project, Angel Lai.
  * @license https://opensource.org/licenses/MIT
  * @link https://medoo.in
  */
@@ -105,7 +105,7 @@ class Medoo
     protected $logs = [];
 
     /**
-     * Determine should log or not.
+     * Determine should log the query or not.
      *
      * @var bool
      */
@@ -119,7 +119,7 @@ class Medoo
     protected $testMode = false;
 
     /**
-     * The query string last generated in test mode.
+     * The last query string was generated in test mode.
      *
      * @var string
      */
@@ -133,7 +133,7 @@ class Medoo
     protected $debugMode = false;
 
     /**
-     * Determine should saving debug logging.
+     * Determine should save debug logging.
      *
      * @var bool
      */
@@ -242,9 +242,7 @@ class Medoo
         }
 
         $option = $options['option'] ?? [];
-        $commands = (isset($options['command']) && is_array($options['command'])) ?
-            $options['command'] :
-            [];
+        $commands = [];
 
         switch ($this->type) {
 
@@ -476,7 +474,11 @@ class Medoo
                     PDO::ERRMODE_SILENT
                 );
             }
-
+            
+            if (isset($options['command']) && is_array($options['command'])) {
+                $commands = array_merge($commands, $options['command']);
+            }
+            
             foreach ($commands as $value) {
                 $this->pdo->exec($value);
             }
@@ -666,7 +668,7 @@ class Medoo
         }
 
         $query = preg_replace_callback(
-            '/(([`\']).*?)?((FROM|TABLE|INTO|UPDATE|JOIN)\s*)?\<(([\p{L}_][\p{L}\p{N}@$#\-_]*)(\.[\p{L}_][\p{L}\p{N}@$#\-_]*)?)\>([^,]*?\2)?/u',
+            '/(([`\']).*?)?((FROM|TABLE|INTO|UPDATE|JOIN|TABLE IF EXISTS)\s*)?\<(([\p{L}_][\p{L}\p{N}@$#\-_]*)(\.[\p{L}_][\p{L}\p{N}@$#\-_]*)?)\>([^,]*?\2)?/u',
             function ($matches) {
                 if (!empty($matches[2]) && isset($matches[8])) {
                     return $matches[0];
@@ -799,8 +801,12 @@ class Medoo
             } elseif ($isArrayValue) {
                 $stack[] = $this->columnPush($value, $map, false, $isJoin);
             } elseif (!$isIntKey && $raw = $this->buildRaw($value, $map)) {
-                preg_match('/(?<column>[\p{L}_][\p{L}\p{N}@$#\-_\.]*)(\s*\[(?<type>(String|Bool|Int|Number))\])?/u', $key, $match);
-                $stack[] = "{$raw} AS {$this->columnQuote($match['column'])}";
+                preg_match('/(?<column>[\p{L}_][\p{L}\p{N}@$#\-_\.]*)(?:\s*\((?<alias>[\p{L}_][\p{L}\p{N}@$#\-_]*)\))?(?:\s*\[(?<type>(?:String|Bool|Int|Number|Object|JSON))\])?/u', $key, $match);
+                if (!empty($match['alias'])) {
+                   $stack[] = "{$raw} AS {$this->columnQuote($match['alias'])}"; 
+                }else{
+                   $stack[] = "{$raw} AS {$this->columnQuote($match['column'])}"; 
+                }
             } elseif ($isIntKey && is_string($value)) {
                 if ($isJoin && strpos($value, '*') !== false) {
                     throw new InvalidArgumentException('Cannot use table.* to select all columns while joining table.');
@@ -809,7 +815,7 @@ class Medoo
                 preg_match('/(?<column>[\p{L}_][\p{L}\p{N}@$#\-_\.]*)(?:\s*\((?<alias>[\p{L}_][\p{L}\p{N}@$#\-_]*)\))?(?:\s*\[(?<type>(?:String|Bool|Int|Number|Object|JSON))\])?/u', $value, $match);
 
                 $columnString = '';
-
+                
                 if (!empty($match['alias'])) {
                     $columnString = "{$this->columnQuote($match['column'])} AS {$this->columnQuote($match['alias'])}";
                     $columns[$key] = $match['alias'];
@@ -832,7 +838,6 @@ class Medoo
                 $stack[] = $columnString;
             }
         }
-
         return implode(',', $stack);
     }
 
@@ -862,7 +867,7 @@ class Medoo
             $mapKey = $this->mapKey();
             $isIndex = is_int($key);
             preg_match(
-                '/([\p{L}_][\p{L}\p{N}@$#\-_\.\(\)]*)(\[(?<operator>\>\=?|\<\=?|\=|\!\=?|\<\>|\>\<|\!?~|REGEXP)\])?([\p{L}_][\p{L}\p{N}@$#\-_\.]*)?/u',
+                '/([\p{L}_][\p{L}\p{N}@$#\-_\.]*)(\[(?<operator>.*)\])?([\p{L}_][\p{L}\p{N}@$#\-_\.]*)?/u',
                 $isIndex ? $value : $key,
                 $match
             );
@@ -871,11 +876,11 @@ class Medoo
             $operator = $match['operator'] ?? null;
 
             if ($isIndex && isset($match[4]) && in_array($operator, ['>', '>=', '<', '<=', '=', '!='])) {
-                $stack[] = "${column} ${operator} " . $this->columnQuote($match[4]);
+                $stack[] = "{$column} {$operator} " . $this->columnQuote($match[4]);
                 continue;
             }
 
-            if ($operator) {
+            if ($operator && $operator != '=') {
                 if (in_array($operator, ['>', '>=', '<', '<='])) {
                     $condition = "{$column} {$operator} ";
 
@@ -971,6 +976,8 @@ class Medoo
                 } elseif ($operator === 'REGEXP') {
                     $stack[] = "{$column} REGEXP {$mapKey}";
                     $map[$mapKey] = [$value, PDO::PARAM_STR];
+                } else {
+                    throw new InvalidArgumentException("Invalid operator [{$operator}] for column {$column} supplied.");
                 }
 
                 continue;
@@ -1150,28 +1157,28 @@ class Medoo
             }
             
             if (isset($where['LOCK'])) {
-            	$lock = '';
-            	if (is_bool($where['LOCK'])) {
-		            $lock =  $where['LOCK'] ? 'FOR UPDATE' : '';
-		            switch($this->type){
-		            	case 'mssql':
-		            		$lock = '';
-		            		$this->lockSql =  $where['LOCK'] ? 'WITH(rowlock,updlock,holdlock)' : '';
-		            	break;
-		            	case 'oracle':
-		            		$lock =  $where['LOCK'] ? 'FOR UPDATE NOWAIT' : '';
-		            	break;
-		            }
-		        }else{
-		        	if (is_string($where['LOCK']) && !empty($where['LOCK'])) {
-		        		if($this->type==='mssql'){
-		        			$this->lockSql =  $where['LOCK'] ? 'WITH('.trim($lock).')' : '';
-		        		}else{
-		        			$lock = trim($lock);
-		        		}
-			        }
-		        }
-		        $clause .= $lock ? ' ' . $lock : '';
+                $lock = '';
+                if (is_bool($where['LOCK'])) {
+                    $lock =  $where['LOCK'] ? 'FOR UPDATE' : '';
+                    switch($this->type){
+                        case 'mssql':
+                            $lock = '';
+                            $this->lockSql =  $where['LOCK'] ? 'WITH(rowlock,updlock,holdlock)' : '';
+                        break;
+                        case 'oracle':
+                            $lock =  $where['LOCK'] ? 'FOR UPDATE NOWAIT' : '';
+                        break;
+                    }
+                }else{
+                    if (is_string($where['LOCK']) && !empty($where['LOCK'])) {
+                        if($this->type==='mssql'){
+                            $this->lockSql =  $where['LOCK'] ? 'WITH('.trim($lock).')' : '';
+                        }else{
+                            $lock = trim($lock);
+                        }
+                    }
+                }
+                $clause .= $lock ? ' ' . $lock : '';
             }
 
         } elseif ($raw = $this->buildRaw($where, $map)) {
@@ -1197,28 +1204,27 @@ class Medoo
         array &$map,
         $join,
         &$columns = null,
-        array $where = null,
+        $where = null,
         $columnFn = null
     ): string {
         preg_match('/(?<table>[\p{L}_][\p{L}\p{N}@$#\-_]*)\s*\((?<alias>[\p{L}_][\p{L}\p{N}@$#\-_]*)\)/u', $table, $tableMatch);
 
         if(strpos($table,'<custom>')!==false){
-        	$table = str_replace('<custom>','',$table);
-        	if(strpos(strtoupper($table),' AS ') !==false){
-				$tableExp = explode(' AS ',$table);
-				
-				$tableAlias = end($tableExp);
-				$tableQuery = "{$table}";
-			}
+            $table = str_replace('<custom>','',$table);
+            if(strpos(strtoupper($table),' AS ') !==false){
+                $tableExp = explode(' AS ',$table);
+                $tableAlias = end($tableExp);
+                $tableQuery = "{$table}";
+            }
         }else{
-        	if (isset($tableMatch['table'], $tableMatch['alias'])) {
-	            $table = $this->tableQuote($tableMatch['table']);
-	            $tableAlias = $this->tableQuote($tableMatch['alias']);
-	            $tableQuery = "{$table} AS {$tableAlias}";
-	        } else {
-	            $table = $this->tableQuote($table);
-	            $tableQuery = $table;
-	        }
+            if (isset($tableMatch['table'], $tableMatch['alias'])) {
+                $table = $this->tableQuote($tableMatch['table']);
+                $tableAlias = $this->tableQuote($tableMatch['alias']);
+                $tableQuery = "{$table} AS {$tableAlias}";
+            } else {
+                $table = $this->tableQuote($table);
+                $tableQuery = $table;
+            }
         }
         
 
@@ -1249,7 +1255,6 @@ class Medoo
         if (isset($columnFn)) {
             if ($columnFn === 1) {
                 $column = '1';
-
                 if (is_null($where)) {
                     $where = $columns;
                 }
@@ -1267,19 +1272,24 @@ class Medoo
             $column = $this->columnPush($columns, $map, true, $isJoin);
         }
         $whereClause = $this->whereClause($where, $map);
+        //RC start
+        if($this->RCWhere){
+            $whereClause.= $this->whereClause($this->RCWhere, $map);
+        }
+        //RC end
         if($this->lockSql){
-        	$explode = explode(' ',$tableQuery);
-        	if(count($explode)==1){
-        		$tableQuery.= $this->lockSql ? ' '.$this->lockSql : '';
-        	}else{
-        		if($this->lockSql){
-        			if($explode[1]=='AS'){
-        				$tableQuery = str_replace($explode[0].' AS '.$explode[2],$explode[0].' AS '.$explode[2].' '.$this->lockSql,$tableQuery);
-        			}else{
-        				$tableQuery = str_replace($explode[0].' ',$explode[0].' '.$this->lockSql,$tableQuery);
-        			}
-        		}
-        	}
+            $explode = explode(' ',$tableQuery);
+            if(count($explode)==1){
+                $tableQuery.= $this->lockSql ? ' '.$this->lockSql : '';
+            }else{
+                if($this->lockSql){
+                    if($explode[1]=='AS'){
+                        $tableQuery = str_replace($explode[0].' AS '.$explode[2],$explode[0].' AS '.$explode[2].' '.$this->lockSql,$tableQuery);
+                    }else{
+                        $tableQuery = str_replace($explode[0].' ',$explode[0].' '.$this->lockSql,$tableQuery);
+                    }
+                }
+            }
         }
         return 'SELECT ' . $column . ' FROM ' . $tableQuery . $whereClause;
     }
@@ -1288,7 +1298,7 @@ class Medoo
      * Determine the array is with join syntax.
      *
      * @param mixed $join
-     * @return string
+     * @return bool
      */
     protected function isJoin($join): bool
     {
@@ -1373,7 +1383,7 @@ class Medoo
                 $tableName .= ' AS ' . $this->tableQuote($match['alias']);
             }
 
-            $tableJoin[] = $type[$match['join']] . " JOIN ${tableName} ${relation}";
+            $tableJoin[] = $type[$match['join']] . " JOIN {$tableName} {$relation}";
         }
 
         return implode(' ', $tableJoin);
@@ -1405,8 +1415,10 @@ class Medoo
                     [$columnKey, $keyMatch['type']] :
                     [$columnKey, 'String'];
             } elseif ($this->isRaw($value)) {
-                preg_match('/([\p{L}_][\p{L}\p{N}@$#\-_]*\.)?(?<column>[\p{L}_][\p{L}\p{N}@$#\-_]*)(\s*\[(?<type>(String|Bool|Int|Number))\])?/u', $key, $keyMatch);
-                $columnKey = $keyMatch['column'];
+                preg_match('/([\p{L}_][\p{L}\p{N}@$#\-_]*\.)?(?<column>[\p{L}_][\p{L}\p{N}@$#\-_]*)(?:\s*\((?<alias>[\p{L}_][\p{L}\p{N}@$#\-_]*)\))?(?:\s*\[(?<type>(?:String|Bool|Int|Number|Object|JSON))\])?/u', $key, $keyMatch);
+                $columnKey = !empty($keyMatch['alias']) ?
+                    $keyMatch['alias'] :
+                    $keyMatch['column'];
 
                 $stack[$key] = isset($keyMatch['type']) ?
                     [$columnKey, $keyMatch['type']] :
@@ -1621,7 +1633,7 @@ class Medoo
      */
     public function drop(string $table): ?PDOStatement
     {
-        return $this->exec('DROP TABLE IF EXISTS ' . $this->tableQuote($this->prefix . $table));
+        return $this->exec('DROP TABLE IF EXISTS ' . $this->tableQuote($table));
     }
 
     /**
@@ -1945,20 +1957,59 @@ class Medoo
         $result = [];
         $columnMap = [];
         $currentStack = [];
-
+        /*
+        $rawWhere = [];
+        $rawWhereString = '';
         if ($where === null) {
             if ($this->isJoin($join)) {
-                $where['LIMIT'] = 1;
+                if(!$this->isRaw($where)){
+                    $where['LIMIT'] = 1;
+                }else{
+                    $rawWhere['LIMIT'] = 1;
+                    $rawWhereString = $this->whereClause($rawWhere,$map);
+                    $where->value.=$rawWhereString;
+                }
             } else {
-                $columns['LIMIT'] = 1;
+                if(!$this->isRaw($columns)){
+                    $columns['LIMIT'] = 1;
+                }else{
+                    $rawWhere['LIMIT'] = 1;
+                    $rawWhereString = $this->whereClause($rawWhere,$map);
+                    $columns->value.=$rawWhereString;
+                }
             }
 
             $column = $join;
         } else {
             $column = $columns;
-            $where['LIMIT'] = 1;
+            if(!$this->isRaw($where)){
+                $where['LIMIT'] = 1;
+            }else{
+                $rawWhere['LIMIT'] = 1;
+                $rawWhereString = $this->whereClause($rawWhere,$map);
+                $where->value.=$rawWhereString;
+            }
         }
+        */
+        
+        if ($where === null) {
+            if ($this->isJoin($join)) {
+                if(!$this->isRaw($where)){
+                    $where['LIMIT'] = 1;
+                }
+            } else {
+                if(!$this->isRaw($columns)){
+                    $columns['LIMIT'] = 1;
+                }
+            }
 
+            $column = $join;
+        } else {
+            $column = $columns;
+            if(!$this->isRaw($where)){
+                $where['LIMIT'] = 1;
+            }
+        }
         $isSingle = (is_string($column) && $column !== '*');
         $query = $this->exec($this->selectContext($table, $map, $join, $columns, $where), $map);
 
@@ -2280,11 +2331,24 @@ class Medoo
         ];
 
         foreach ($output as $key => $value) {
-            $output[$key] = @$this->pdo->getAttribute(constant('PDO::ATTR_' . $value));
+            try {
+                $output[$key] = $this->pdo->getAttribute(constant('PDO::ATTR_' . $value));
+            } catch (PDOException $e) {
+                $output[$key] = $e->getMessage();
+            }
         }
 
         $output['dsn'] = $this->dsn;
 
         return $output;
     }
+    
+    
+    //RC start
+    protected $RCWhere = null;
+    
+    public function buildRCWhere($RCwhere){
+        $this->RCWhere = $RCwhere;
+    }
+    //RC END
 }

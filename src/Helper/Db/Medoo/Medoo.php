@@ -1274,7 +1274,8 @@ class Medoo
         $whereClause = $this->whereClause($where, $map);
         //RC start
         if($this->RCWhere){
-            $whereClause.= $this->whereClause($this->RCWhere, $map);
+            $RCWhereClause = $this->whereClause($this->RCWhere, $map);
+            $whereClause = $whereClause.str_replace(' WHERE','',$RCWhereClause);
         }
         //RC end
         if($this->lockSql){
@@ -1957,40 +1958,6 @@ class Medoo
         $result = [];
         $columnMap = [];
         $currentStack = [];
-        /*
-        $rawWhere = [];
-        $rawWhereString = '';
-        if ($where === null) {
-            if ($this->isJoin($join)) {
-                if(!$this->isRaw($where)){
-                    $where['LIMIT'] = 1;
-                }else{
-                    $rawWhere['LIMIT'] = 1;
-                    $rawWhereString = $this->whereClause($rawWhere,$map);
-                    $where->value.=$rawWhereString;
-                }
-            } else {
-                if(!$this->isRaw($columns)){
-                    $columns['LIMIT'] = 1;
-                }else{
-                    $rawWhere['LIMIT'] = 1;
-                    $rawWhereString = $this->whereClause($rawWhere,$map);
-                    $columns->value.=$rawWhereString;
-                }
-            }
-
-            $column = $join;
-        } else {
-            $column = $columns;
-            if(!$this->isRaw($where)){
-                $where['LIMIT'] = 1;
-            }else{
-                $rawWhere['LIMIT'] = 1;
-                $rawWhereString = $this->whereClause($rawWhere,$map);
-                $where->value.=$rawWhereString;
-            }
-        }
-        */
         
         if ($where === null) {
             if ($this->isJoin($join)) {

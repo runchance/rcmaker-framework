@@ -106,7 +106,7 @@ class Token{
         } catch (BeforeValidException $beforeValidException) {
             throw new AuthException(static::$msg['refresh_token_invalid_yet'] ?? 'The refreshed token is not yet valid');
         } catch (ExpiredException $expiredException) {
-            throw new JwtRefreshTokenExpiredException(static::$msg['refresh_token_expired'] ?? 'Refreshed token is expired');
+            throw new AuthException(static::$msg['refresh_token_expired'] ?? 'Refreshed token is expired');
         } catch (UnexpectedValueException $unexpectedValueException) {
             throw new AuthException(static::$msg['refresh_token_format_error'] ?? 'Refreshed token format error');
         } catch (JwtCacheTokenException | \Exception $exception) {

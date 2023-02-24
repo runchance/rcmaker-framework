@@ -366,7 +366,7 @@ class Db{
 						}
 					break;
 					case 'medoo':
-						foreach($this->where as $where){
+						foreach($this->where as $whereKey=>$where){
 							if(is_array($where)){
 								$countWhere = count($where);
 								if($countWhere<2){
@@ -469,8 +469,8 @@ class Db{
 									}
 								}
 							}else{
-							    
-								$this->medooWhereRaw = Medoo::raw('WHERE '.$where);
+								$this->medooWhereRaw = $where;
+								unset($this->where[$whereKey]);
 							}
 							
 						}
@@ -917,9 +917,13 @@ class Db{
 	    if($this->medooWhere && !$this->medooWhereRaw){
 	        $where = $this->medooWhere;
 	    }elseif(!$this->medooWhere && $this->medooWhereRaw){
-	        $where = $this->medooWhereRaw;
+	        $where = Medoo::raw('WHERE '.$this->medooWhereRaw);
 	    }elseif($this->medooWhere && $this->medooWhereRaw){
-	        $where = $this->medooWhereRaw;
+	        if($this->where || $this->whereExp){
+	            $where = Medoo::raw('WHERE ('.$this->medooWhereRaw.') AND');
+	        }else{
+	            $where = Medoo::raw('WHERE '.$this->medooWhereRaw);
+	        }
 	        $this->connect->buildRCWhere($this->medooWhere);
 	    }else{
 	        $where = [];

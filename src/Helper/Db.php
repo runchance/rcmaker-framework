@@ -378,7 +378,7 @@ class Db{
 									if($countWhere>2){
 									    if($countWhere==3){
 									       $joiner = $where[2] ?? 'AND';
-									       if(is_string($joiner) && in_array(strtolower($joiner),['or','and'])){
+									       if(is_string($joiner) && in_array(strtolower($joiner),['or','and']) && !in_array(strtolower($where[1]),['=','>','<','>=','<=','<>','><','!','~','!~','between','bt','wb','not between','notbetween','nbt','wnb','not in','notin','ni','wni','like','l','wl','not like','notlike','nl','wnl','null','isnull','is null','n','wn','notnull','isnotnull','not null','is not null','nn','wnn','in','wi'])){
 									           $op = '=';
 									           $whereVal = $where[1];
 									       }else{
@@ -403,7 +403,7 @@ class Db{
 											case 'not between': case 'notbetween': case 'nbt': case 'wnb':
 												$op = '><';
 											break;
-											case 'not in': case 'notin': case 'ni': case 'wni':
+											case 'not in': case 'notin': case 'ni': case 'wni': case '<>':
 												$op = '!';
 											break;
 											case 'like': case 'l': case 'wl':

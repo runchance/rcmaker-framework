@@ -557,7 +557,6 @@ class Db{
 						        }
 							} 
 						}
-						var_dump($this->medooWhere);
 					break;
 				}
 			}

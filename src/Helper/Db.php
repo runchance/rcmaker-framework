@@ -165,11 +165,33 @@ class Db{
 	}
 
 	public function where(...$where){
-		$this->where[] = count($where)>1 ? $where : ' '.$where[0];
+		if(is_callable($where[0])){
+			$this->where[] = [$where[0],'AND'];
+		}else{
+			$this->where[] = (count($where)>1) ? $where : ' '.$where[0];
+		}
+		
 		return $this;
 	}
+
 	public function w(...$where){
 		return $this->where(...$where);
+	}
+
+	public function whereOr(...$where){
+		$whereOr = $where;
+		$whereOr[] = 'OR';
+		if(is_callable($where[0])){
+			$this->where[] = $whereOr;
+		}else{
+			$this->where[] = count($where)>1 ? $whereOr : ' '.$where[0];
+		}
+		
+		return $this;
+	}
+
+	public function wo(...$where){
+		return $this->whereOr(...$where);
 	}
 
 	public function whereExp($exp, ...$where){
@@ -227,7 +249,7 @@ class Db{
 		}
 	}
 
-	private function build($builders = []){
+	private function build($builders = [], $builderParms = []){
 		foreach($builders as $builder){
 			if($builder=='table' && $this->table){
 				switch($this->engine){
@@ -338,7 +360,7 @@ class Db{
 			if($builder=='where' && $this->where){
 				switch($this->engine){
 					case 'think':
-						foreach($this->where as $where){
+						foreach($this->where as $whereKey=>$where){
 							if(is_array($where)){
 								if(strtoupper(end($where))=='OR'){
 									array_pop($where);
@@ -373,7 +395,15 @@ class Db{
 									$this->medooWhere = null;
 								}else{
 									if($countWhere==2){
-										$this->medooWhere[$where[0]] = $where[1];
+										$op = '=';
+							            $joiner = 'AND';
+							            $whereVal = $where[1];
+							            if(is_callable($where[0])){
+							            	unset($this->where);
+											$where[0]($this);
+											$this->build(['where'],['closure',$whereKey,$where[1]]);
+											continue;
+							            }
 									}
 									if($countWhere>2){
 									    if($countWhere==3){
@@ -423,56 +453,109 @@ class Db{
 												$op = null;
 											break;
 											
-										}
-										
-										if(strtolower($joiner)=='or'){
-											if($this->medooWhere){
-												$medooWhere = $this->medooWhere;
-												$this->medooWhere = null;
-												if(isset($medooWhere['OR'])){
-													$this->medooWhere['OR'] = $medooWhere['OR'];
-													$this->medooWhere['OR'][$where[0].'['.$op.']'] = $whereVal;
-												}elseif(isset($medooWhere['AND'])){
-													$this->medooWhere['AND'] = $medooWhere['AND'];
-													$this->medooWhere['AND']['OR'][$where[0].'['.$op.']'] = $whereVal;
-												}else{
-													$this->medooWhere['OR'][$where[0].'['.$op.']'] = $whereVal;
-													foreach($medooWhere as $key=>$mwhere){
-														if(count($medooWhere)>1){
-															$this->medooWhere['OR']['AND'][$key] = $mwhere;
-														}else{
-															$this->medooWhere['OR'][$key] = $mwhere;
-														}
-													}
-												}
-											}else{
-												$this->medooWhere['OR'][$where[0].'['.$op.']'] = $whereVal;
+										}	
+									}
+									$opHandle = $where[0].'['.$op.']';
+									if(strtolower($joiner)=='or'){
+										if(isset($builderParms[0]) && $builderParms[0]=='closure'){ //处理闭包
+											if(isset($this->medooWhere['closure_'.strtolower($builderParms[2])]['OR #closure@'.$builderParms[1]][$opHandle])){
+											    $opHandle = $opHandle.' #'.$whereKey;
 											}
-											
+											if(isset($this->medooWhere['closure_'.strtolower($builderParms[2])]['OR #closure@'.$builderParms[1]])){
+												$this->medooWhere['closure_'.strtolower($builderParms[2])]['OR #closure@'.$builderParms[1]][$opHandle] = $whereVal;
+											}else{
+												$this->medooWhere['closure_'.strtolower($builderParms[2])]['OR #closure@'.$builderParms[1]][$opHandle] = $whereVal;
+											}
 										}else{
 											if($this->medooWhere){
 												$medooWhere = $this->medooWhere;
-												$this->medooWhere = null;
-												if(isset($medooWhere['AND']) || isset($medooWhere['OR'])){
-													$this->medooWhere['AND'][$where[0].'['.$op.']'] = $whereVal;
-													if(isset($medooWhere['OR'])){
-														$this->medooWhere['AND']['OR'] = $medooWhere['OR'];
-													}
+												if(isset($this->medooWhere['OR #normal'][$opHandle])){
+												    $opHandle = $opHandle.' #'.$whereKey;
+												}
+												if(isset($medooWhere['OR #normal'])){
+													$this->medooWhere['OR #normal'] = $medooWhere['OR #normal'];
+													$this->medooWhere['OR #normal'][$opHandle] = $whereVal;
 												}else{
-													$this->medooWhere = $medooWhere;
-													$this->medooWhere[$where[0].'['.$op.']'] = $whereVal;
+													$this->medooWhere['OR #normal'][$opHandle] = $whereVal;
 												}
 											}else{
-												$this->medooWhere[$where[0].'['.$op.']'] = $whereVal; 	
+												$this->medooWhere['OR #normal'][$opHandle] = $whereVal;
 											}
 										}
+										
+										
+									}else{
+										if(isset($builderParms[0]) && $builderParms[0]=='closure'){ //处理闭包
+										    if(isset($this->medooWhere['closure_'.strtolower($builderParms[2])]['AND #closure@'.$builderParms[1]][$opHandle])){
+										        $opHandle = $opHandle.' #'.$whereKey;
+										    }
+											if(isset($this->medooWhere['closure_'.strtolower($builderParms[2])]['AND #closure@'.$builderParms[1]])){
+												$this->medooWhere['closure_'.strtolower($builderParms[2])]['AND #closure@'.$builderParms[1]][$opHandle] = $whereVal;
+											}else{
+												$this->medooWhere['closure_'.strtolower($builderParms[2])]['AND #closure@'.$builderParms[1]][$opHandle] = $whereVal;
+											}
+										}else{
+										    if(isset($this->medooWhere[$opHandle])){
+										        $opHandle = $opHandle.' #'.$whereKey;
+										    }
+											$this->medooWhere[$opHandle] = $whereVal; 
+										}
+											
 									}
 								}
 							}else{
 								$this->medooWhereRaw = $where;
 								unset($this->where[$whereKey]);
+							}	
+						}
+						if(isset($this->medooWhere['OR #normal']) && count($this->medooWhere['OR #normal'])==1){
+							foreach($this->medooWhere as $key=>$val){
+								if($key!=='OR #normal'){
+									$this->medooWhere['OR #normal']['AND'][$key]=$val;
+									unset($this->medooWhere[$key]);
+								}
+							} 
+						}
+					
+						if(isset($this->medooWhere['closure_or'])){
+							$closureOR = $this->medooWhere['closure_or'];
+							unset($this->medooWhere['closure_or']);
+						
+							foreach($closureOR as $key=>$val){
+							    $closureKeyArr = explode('@',$key);
+							    $closureName = $closureKeyArr[0];
+							    $closureKey = $closureKeyArr[1];
+							    if(isset($closureOR['OR #closure@'.$closureKey])){
+							        $this->medooWhere['OR #closure']['OR #closure@'.$closureKey] = $closureOR['OR #closure@'.$closureKey];
+							    }
+							    if(isset($closureOR['AND #closure@'.$closureKey])){
+							        $this->medooWhere['OR #closure']['OR #closure@'.$closureKey]['AND #closure@'.$closureKey] = $closureOR['AND #closure@'.$closureKey];
+							    }
 							}
 							
+						}
+						if(isset($this->medooWhere['closure_and'])){
+						    $closureAND = $this->medooWhere['closure_and'];
+							unset($this->medooWhere['closure_and']);
+							foreach($closureAND as $key=>$val){
+							    $closureKeyArr = explode('@',$key);
+							    $closureName = $closureKeyArr[0];
+							    $closureKey = $closureKeyArr[1];
+							    if(isset($closureAND['OR #closure@'.$closureKey])){
+							        $this->medooWhere['AND #closure']['OR #closure@'.$closureKey] = $closureAND['OR #closure@'.$closureKey];
+							    }
+							    if(isset($closureAND['AND #closure@'.$closureKey])){
+							        $this->medooWhere['AND #closure']['OR #closure@'.$closureKey]['AND #closure@'.$closureKey] = $closureAND['AND #closure@'.$closureKey];
+							    }
+							}
+						}
+						if(isset($this->medooWhere['OR #closure'])){
+						    foreach($this->medooWhere as $key=>$val){
+						        if($key!=='OR #closure'){
+						            $this->medooWhere['OR #closure']['AND'][$key]=$val;
+								    unset($this->medooWhere[$key]);
+						        }
+							} 
 						}
 					break;
 				}

@@ -551,12 +551,13 @@ class Db{
 						}
 						if(isset($this->medooWhere['OR #closure'])){
 						    foreach($this->medooWhere as $key=>$val){
-						        if($key!=='OR #closure'){
+						        if($key!=='OR #closure' && $key!=='AND #closure'){
 						            $this->medooWhere['OR #closure']['AND'][$key]=$val;
 								    unset($this->medooWhere[$key]);
 						        }
 							} 
 						}
+						var_dump($this->medooWhere);
 					break;
 				}
 			}

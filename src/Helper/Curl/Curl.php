@@ -153,7 +153,7 @@ class Curl
                     $data instanceof \JsonSerializable
                 )
             )) {
-            $data = \Curl\Encoder::encodeJson($data);
+            $data = \RC\Helper\Curl\Encoder::encodeJson($data);
         } elseif (is_array($data)) {
             // Manually build a single-dimensional array from a multi-dimensional array as using curl_setopt($ch,
             // CURLOPT_POSTFIELDS, $data) doesn't correctly handle multi-dimensional arrays when files are

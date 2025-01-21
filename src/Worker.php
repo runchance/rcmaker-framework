@@ -727,7 +727,7 @@ class worker{
 					}
 				});
 				$pool->on('workerStart', function ($pool, $workid) use ($process,$config){
-					static $workers,$process;
+					static $workers;
 					static::$_workid = $workid;
 					foreach($process as $proc){
 						switch($proc['protocol']){

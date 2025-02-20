@@ -810,6 +810,8 @@ class worker{
 
 			Workerman::$pidFile                      = $config['pid_file'];
 			Workerman::$stdoutFile                   = $config['stdout_file'];
+			Workerman::$logFile                      = $config['log_file'];
+			Workerman::$statusFile                      = $config['status_file'];
 			TcpConnection::$defaultMaxPackageSize = $config['max_package_size'] ?? 10*1024*1024;
 
 

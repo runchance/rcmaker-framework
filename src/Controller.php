@@ -184,7 +184,7 @@ class Controller{
 
 	protected static function staticMode($path, $key, $config, $request, $response, $file = null){
 		$document_root = $config['document_root'] ?? BASE_PATH . '/public';
-		$file = $file ?? \realpath("$document_root/$path");
+		$file = $file ?? "$document_root$path";
 		if (false === $file || false === \is_file($file)) {
             return false;
         }

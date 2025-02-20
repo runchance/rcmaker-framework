@@ -25,7 +25,7 @@ use RC\Http\Workerman\Response as ResponseObj;
 use Jenssegers\Mongodb\Connection as mongodbConnection;
 use RC\Helper\Db as SimpleDb;
 
-define('IS_CLI',PHP_SAPI=='cli' ? 1 : 0);
+define('IS_CLI',PHP_SAPI=='cli' || PHP_SAPI=='micro' ? 1 : 0);
 define('BASE_PATH', ROOT_PATH);
 define('FRAME_PATH', realpath(__DIR__));
 define('IS_WIN',strstr(PHP_OS, 'WIN') ? 1 : 0);
@@ -719,21 +719,28 @@ function stopwatch($eventname='__controller__'){
      return ['time'=>$endtime,'memory'=>$memory];
 }
 
+function is_phar(){
+    return class_exists(Phar::class, false) && Phar::running();
+}
+
 function base_path(){
     return BASE_PATH;
 }
 
+function phar_path(){
+    return is_phar() ? dirname(Phar::running(false)) : BASE_PATH;
+}
+
 function runtime_path(){
-    return BASE_PATH."/runtime";
+    return Config::get('app','runtime_path') ?? phar_path()."/runtime";
 }
 
 function ssl_path(){
-    return BASE_PATH."/ssl";
+    return Config::get('app','ssl_path') ?? BASE_PATH."/ssl";
 }
 
-
 function public_path(){
-    return BASE_PATH."/public";
+    return Config::get('app','public_path') ?? BASE_PATH."/public";
 }
 
 function view_path(){

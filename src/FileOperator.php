@@ -26,7 +26,7 @@ trait FileOperator{
             }
             return $maked;
        }
-       return \mkdir($path,$mode,$recursive);
+       return !is_dir($path) ? \mkdir($path,$mode,$recursive) : true;
     }
     public static function read($filename,$use_include_path = null,$context = null,$offset = 0,$maxlen = 0){
         if(\is_file($filename)){

@@ -32,6 +32,7 @@ class Db{
 	private $medooWhere = null;
 	private $medooWhereRaw = null;
 	private $medooOp = null;
+	private $table = null;
 	private static $_Query =null;
 	private static $_Builder =null;
 	private static $_DriverMap = [

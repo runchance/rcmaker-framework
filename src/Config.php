@@ -1,16 +1,15 @@
 <?php
 namespace RC;
 use RC\FileOperator as file;
-
+define('ENV_PATH', phar_path().'/.env');
+define('CONFIG_PATH', BASE_PATH.'/config');
 final class Config{
 	use file;
-	const config_path = BASE_PATH.'/config';
-	const env_path = BASE_PATH.'/.env';
 	private static $_c = [];
 	private static $_envData = [];
 	public static function getEnv(string $name = null, $default = null){
-		if(is_file(static::env_path)){
-			static::$_c['__env__'] = static::$_c['__env__'] ?? parse_ini_file(static::env_path, true) ?: [];
+		if(is_file(ENV_PATH)){
+			static::$_c['__env__'] = static::$_c['__env__'] ?? parse_ini_file(ENV_PATH, true) ?: [];
 		}
 
 		if(!static::$_envData){
@@ -102,7 +101,10 @@ final class Config{
 			}
 		}
 		if($force===true){
-			static::$_c['__env__'] = parse_ini_file(static::env_path, true) ?: [];
+			if(is_file(ENV_PATH)){
+				static::$_c['__env__'] = parse_ini_file(ENV_PATH, true) ?: [];
+			}
+			
 			static::setEnv(static::$_c['__env__'] ?? []);
 		}
 		$config_file = static::checkfile($file);
@@ -117,7 +119,7 @@ final class Config{
 		}
 	}
 	public static function getAll($force=null,$exclude=[]){
-		foreach (glob(static::config_path . '/*.php') as $file) {
+		foreach (glob(CONFIG_PATH . '/*.php') as $file) {
             $basename = basename($file, '.php');
             if (in_array($basename, $exclude)) {
                 continue;
@@ -132,7 +134,7 @@ final class Config{
 		}
 		$config_file = static::checkfile($file);
 		if(!$config_file){
-			$config_file = static::config_path.'/'.$file.'.php';
+			$config_file = CONFIG_PATH.'/'.$file.'.php';
 			file::write($config_file,"<?php\nreturn ".var_export(array(),true).";\n?>");
 		}
 		static::$_c[$file] = static::$_c[$file] ?? include($config_file);
@@ -143,7 +145,7 @@ final class Config{
 		file::write($config_file,"<?php \nreturn ".var_export(static::$_c[$file],true).";\n?>");
 	}
 	private static function checkfile($file){
-		$config_file = self::config_path.'/'.$file.'.php';
+		$config_file = CONFIG_PATH.'/'.$file.'.php';
 		if(!is_file($config_file)){
 			return false;
 		}

@@ -7,7 +7,7 @@ final class Config{
 	use file;
 	private static $_c = [];
 	private static $_envData = [];
-	public static function getEnv(string $name = null, $default = null){
+	public static function getEnv($name = null, $default = null){
 		if(is_file(ENV_PATH)){
 			static::$_c['__env__'] = static::$_c['__env__'] ?? parse_ini_file(ENV_PATH, true) ?: [];
 		}

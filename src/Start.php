@@ -647,7 +647,7 @@ function database($engine='',$type=null,$id=1,$class=null,$config=null,$support=
     return $DB[$engine][$type]['id_'.$id];
 }
 
-function rcEnv(string $name = null, $default = null)
+function rcEnv($name = null, $default = null)
 {
     return Config::getEnv($name, $default);
 }

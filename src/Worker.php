@@ -295,7 +295,9 @@ class worker{
 								foreach (($pconfig['autoload'] ?? []) as $file) {
 							        include_once $file;
 							    }
-							    
+							    if ($timezone = $pconfig['default_timezone'] ?? Config::get('app','default_timezone')) {
+								    \date_default_timezone_set($timezone);
+								}
 								$process->name($proc_name);
 								$server->addProcess($process);
 								$processes[] = [$proc_name,'process',$pconfig['bootstrap'] ?? []];
@@ -449,7 +451,9 @@ class worker{
 				    if($start_app){
 				    	Middleware::load(Config::get('middleware',null,true) ?? []);
 				    }
-				    
+				    if ($timezone = Config::get('app','default_timezone')) {
+					    \date_default_timezone_set($timezone);
+					}
 				    if(Config::get('app','count')!==true){
 				    	Stopwatch::$_framework = null;
 				    }
@@ -487,6 +491,9 @@ class worker{
 					    foreach ((Config::get('bootstrap') ?? []) as $class_name) {
 					        $class_name::start($server);
 					    }
+					    if ($timezone = Config::get('app','default_timezone')) {
+						    \date_default_timezone_set($timezone);
+						}
 				
 						Middleware::load(Config::get('middleware',null,true) ?? []);
 						\register_shutdown_function(function ($start_time) {
@@ -615,6 +622,9 @@ class worker{
 									foreach (($pconfig['autoload'] ?? []) as $file) {
 								        include_once $file;
 								    }
+								    if ($timezone = $pconfig['default_timezone'] ?? Config::get('app','default_timezone')) {
+									    \date_default_timezone_set($timezone);
+									}
 									$instance = Container::make($class, array_merge(['type'=>'swoole','worker'=>$server,'timer'=>\Swoole\Timer::class],$pconfig['constructor'] ?? []) ?? []);
 
 								}];
@@ -678,7 +688,9 @@ class worker{
 								        include_once $file;
 								    }
 								
-									
+									if ($timezone = $pconfig['default_timezone'] ?? Config::get('app','default_timezone')) {
+									    \date_default_timezone_set($timezone);
+									}
 									$instance = Container::make($class, array_merge(['type'=>'swoole','worker'=>$server,'timer'=>\Swoole\Timer::class],$pconfig['constructor'] ?? []));
 									return $instance;
 								}];
@@ -852,7 +864,9 @@ class worker{
 				    foreach ((Config::get('bootstrap') ?? []) as $class_name) {
 				        $class_name::start($worker);
 				    }
-			
+				    if ($timezone = Config::get('app','default_timezone')) {
+					    \date_default_timezone_set($timezone);
+					}
 					Middleware::load(Config::get('middleware',null,true) ?? []);
 					\register_shutdown_function(function ($start_time) {
 				        if (time() - $start_time <= 1) {
@@ -923,6 +937,9 @@ class worker{
 						foreach (($config['autoload'] ?? []) as $file) {
 					        include_once $file;
 					    }
+					    if ($timezone = $config['default_timezone'] ?? Config::get('app','default_timezone')) {
+						    \date_default_timezone_set($timezone);
+						}
 			    		$instance = Container::make($class, array_merge(['type'=>'workerman','worker'=>$processworker,'timer'=>Timer::class],$config['constructor'] ?? []));
 			    		worker_bind($processworker, $instance);
 				    };

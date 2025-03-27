@@ -2,7 +2,7 @@
 namespace RC;
 use RC\FileOperator as file;
 define('ENV_PATH', phar_path().'/.env');
-define('CONFIG_PATH', config_path());
+define('CONFIG_PATH', BASE_PATH.'/config');
 final class Config{
 	use file;
 	private static $_c = [];

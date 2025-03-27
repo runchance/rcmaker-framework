@@ -731,6 +731,10 @@ function phar_path(){
     return is_phar() ? dirname(Phar::running(false)) : BASE_PATH;
 }
 
+function config_path(){
+    return Config::get('app','config_path') ?? BASE_PATH."/config";
+}
+
 function runtime_path(){
     return Config::get('app','runtime_path') ?? phar_path()."/runtime";
 }

@@ -60,7 +60,8 @@ class Controller{
 				return null;
 			}
 		}
-		list($appdir,$app,$controller,$action,$args,$count) = [
+		list($name,$appdir,$app,$controller,$action,$args,$count) = [
+			self::$_mb['name'],
 			self::$_mb['appdir'],
 			self::$_mb['app'],
 			self::$_mb['controller'],
@@ -80,7 +81,7 @@ class Controller{
 		if(!$action){
 			$action = 'index';
 		}
-		$controller_class = "app\\$app\\controller\\$controller";
+		$controller_class = "".$name."\\$app\\controller\\$controller";
 		$controller_class_file = $appdir.'/controller/'.$controller.'.php';
 		$request->setGet($args);
 		$request->app = ['app'=>$app,'controller'=>$controller,'action'=>$action,'class'=>$controller_class];
@@ -183,6 +184,7 @@ class Controller{
 	}
 
 	protected static function staticMode($path, $key, $config, $request, $response, $file = null){
+		
 		$document_root = $config['document_root'] ?? BASE_PATH . '/public';
 		$file = $file ?? "$document_root$path";
 		if (false === $file || false === \is_file($file)) {
@@ -360,7 +362,9 @@ class Controller{
     			$getParm = array_slice($explode, 3); 
 			}
 		}
-		$appdir = BASE_PATH.'/apps/'.$app;
+		$baseAppName = Config::get('app','app_name') ?? 'app';
+		$baseAppPath = Config::get('app','apps_path') ?? BASE_PATH.'/apps';
+		$appdir = $baseAppPath.'/'.$app;
 
 		
 		$config_map = [
@@ -380,7 +384,7 @@ class Controller{
 			if(isset($appconf['domains']) && $appconf['domains']){
 				$app = $controller = $action = '';
 				if(in_array($host,$appconf['domains'])){
-					$appdir = BASE_PATH.'/apps/'.$appname;
+					$appdir = $baseAppPath.'/'.$appname;
 					$app = $appname;
 					if(isset($config['route']) && $config['route']===true){
 						$controller = $explode[0] ?? ($config['index'][0] ?? $controller);
@@ -402,6 +406,7 @@ class Controller{
 		}
 		$args = self::parseParams($getParm);
 		self::$_mb = array_merge([
+			'name'=>$baseAppName,
 			'app'=>$app,
 			'controller'=>$controller,
 			'action'=>$action,

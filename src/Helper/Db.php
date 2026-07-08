@@ -111,14 +111,20 @@ class Db{
 		return $this;
 	}
 
+	private function lastLaravelQueryLog(){
+		$logs = $this->connect::getQueryLog();
+		if(method_exists($this->connect, 'flushQueryLog')){
+			$this->connect::flushQueryLog();
+		}
+		return $logs ? end($logs) : null;
+	}
+
 	public function conn(){
 		return $this->conn;
 	}
 
 	public function native(){
-		static $native;
-		$native = $native ?? \database($this->engine,$this->type);
-		return $native;
+		return \database($this->engine,$this->type);
 	}
 
 	public function table($t=null){
@@ -946,8 +952,7 @@ class Db{
 					return false;
 				} finally{
 					if($this->enbleDebug){
-						$log = $this->connect::getQueryLog();
-						$log = end($log);
+						$log = $this->lastLaravelQueryLog();
 						$this->sql = $log ? vsprintf(\str_replace(['?'], ['\'%s\''],$log['query']), $log['bindings']) : null;
 					}
 				} 
@@ -1041,14 +1046,16 @@ class Db{
 						$this->connect::enableQueryLog();
 					}
 					$result = $this->conn->select(... explode(',',$field))->first();
-					return $result ?? $result->toArray();
+					if($result === null){
+						return null;
+					}
+					return \is_object($result) && method_exists($result, 'toArray') ? $result->toArray() : $result;
 				}catch(\Throwable $ex){
 					$this->error = $ex->getMessage();
 					return false;
 				}finally{
 					if($this->enbleDebug){
-						$log = $this->connect::getQueryLog();
-						$log = end($log);
+						$log = $this->lastLaravelQueryLog();
 						$this->sql = $log ? vsprintf(\str_replace(['?'], ['\'%s\''],$log['query']), $log['bindings']) : null;
 					}
 				}
@@ -1112,8 +1119,7 @@ class Db{
 					return false;
 				} finally{
 					if($this->enbleDebug){
-						$log = $this->connect::getQueryLog();
-						$log = end($log);
+						$log = $this->lastLaravelQueryLog();
 						$this->sql = $log ? vsprintf(\str_replace(['?'], ['\'%s\''],$log['query']), $log['bindings']) : null;
 					}
 				} 
@@ -1162,8 +1168,7 @@ class Db{
 					return false;
 				}finally{
 					if($this->enbleDebug){
-						$log = $this->connect::getQueryLog();
-						$log = end($log);
+						$log = $this->lastLaravelQueryLog();
 						$this->sql = $log ? vsprintf(\str_replace(['?'], ['\'%s\''],$log['query']), $log['bindings']) : null;
 					}
 				} 
@@ -1278,10 +1283,10 @@ class Db{
 
 						$paginate = $this->conn->paginate(... array_values($config));
 						if($query){
-							$result->appends($query);
+							$paginate->appends($query);
 						}
 						if(!empty($fragment)){
-							$result->fragment($fragment);
+							$paginate->fragment($fragment);
 						}
 						$total = $paginate->total();
 						$result = $paginate->items();
@@ -1301,8 +1306,7 @@ class Db{
 					return false;
 				}finally{
 					if($this->enbleDebug){
-						$log = $this->connect::getQueryLog();
-						$log = end($log);
+						$log = $this->lastLaravelQueryLog();
 						$this->sql = $log ? vsprintf(\str_replace(['?'], ['\'%s\''],$log['query']), $log['bindings']) : null;
 					}
 				} 
@@ -1408,7 +1412,10 @@ class Db{
 			case 'think':
 				try {
 					$result = $this->conn->field($field)->select();
-					return $result ?? $result->toArray();
+						if($result === null){
+							return null;
+						}
+						return \is_object($result) && method_exists($result, 'toArray') ? $result->toArray() : $result;
 				}catch(\Throwable $ex){
 					$this->error = $ex->getMessage();
 					return false;
@@ -1422,13 +1429,15 @@ class Db{
 						$this->connect::enableQueryLog();
 					}
 					$result = $this->conn->select(... explode(',',$field))->get();
-					return $result;
+						if($result === null){
+							return null;
+						}
+						return \is_object($result) && method_exists($result, 'toArray') ? $result->toArray() : $result;
 				}catch(\Throwable $ex){
 					$this->error = $ex->getMessage();
 					return false;
 				}finally{
-					$log = $this->connect::getQueryLog();
-					$log = end($log);
+					$log = $this->lastLaravelQueryLog();
 					$this->sql = $log ? vsprintf(\str_replace(['?'], ['\'%s\''],$log['query']), $log['bindings']) : null;
 				} 
 			break;
@@ -1487,8 +1496,7 @@ class Db{
 					$this->error = $ex->getMessage();
 					return false;
 				}finally{
-					$log = $this->connect::getQueryLog();
-					$log = end($log);
+					$log = $this->lastLaravelQueryLog();
 					$this->sql = $log ? vsprintf(\str_replace(['?'], ['\'%s\''],$log['query']), $log['bindings']) : null;
 				} 
 			break;
@@ -1553,8 +1561,7 @@ class Db{
 					$this->error = $ex->getMessage();
 					return false;
 				}finally{
-					$log = $this->connect::getQueryLog();
-					$log = end($log);
+					$log = $this->lastLaravelQueryLog();
 					$this->sql = $log ? vsprintf(\str_replace(['?'], ['\'%s\''],$log['query']), $log['bindings']) : null;
 				} 
 			break;

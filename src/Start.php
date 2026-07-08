@@ -31,6 +31,18 @@ define('FRAME_PATH', realpath(__DIR__));
 define('IS_WIN',strstr(PHP_OS, 'WIN') ? 1 : 0);
 define('VER','1.0');
 
+function rc_response_header_value($value){
+    return str_replace(["\r", "\n"], '', (string)$value);
+}
+
+function rc_response_json_body($data, $options = JSON_UNESCAPED_UNICODE){
+    $json = json_encode($data, $options);
+    if($json === false){
+        $json = json_encode(['error'=>'json_encode_failed','message'=>json_last_error_msg()], JSON_UNESCAPED_UNICODE);
+    }
+    return $json === false ? '{"error":"json_encode_failed"}' : $json;
+}
+
 function response($request,$body = '', $status = 200, $headers = array()){
    $response = $request->RCresponse ?? null;
    if($response){
@@ -44,7 +56,7 @@ function response($request,$body = '', $status = 200, $headers = array()){
 
 
 function json($request,$data, $options = JSON_UNESCAPED_UNICODE){
-    return new ResponseObj($request, 200, ['Content-Type' => 'application/json'], json_encode($data, $options));
+    return new ResponseObj($request, 200, ['Content-Type' => 'application/json'], rc_response_json_body($data, $options));
 }
 
 function xml($request,$xml){
@@ -55,13 +67,17 @@ function xml($request,$xml){
 }
 
 function jsonp($request,$data, $callback_name = 'callback'){
+    if(!preg_match('/^[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)*$/', $callback_name)){
+        $callback_name = 'callback';
+    }
     if (!is_scalar($data) && null !== $data) {
-        $data = json_encode($data);
+        $data = rc_response_json_body($data);
     }
     return new ResponseObj($request, 200, [], "$callback_name($data)");
 }
 
 function redirect($request,$location, $status = 302, $headers = []){
+    $location = rc_response_header_value($location);
     $response = new ResponseObj($request, $status, ['Location' => $location]);
     if (!empty($headers)) {
         $response->withHeaders($headers);
@@ -130,7 +146,7 @@ function qrcode($request,$text,$format = 'png',$outfile = false, $level = 0, $si
     if($format=='png'){
         $header = ['Content-Type'=>'image/png'];
         \ob_start();
-        $QRcode::png('Hello RCmaker',$outfile,$level,$size,$margin,$saveandprint);
+	    $QRcode::png($text,$outfile,$level,$size,$margin,$saveandprint);
         $content = \ob_get_clean();
         return response($request,$content,200,$header);
     }
@@ -149,6 +165,7 @@ function setcookies($request,$keyvalue = [], $expires = 0, $path = '', $domain =
     $frame = $RCresponse::$_frame;
     $return = true;
     if($frame=='workerman' || $frame=='swoole'){
+          $maxAge = ($expires === 0 || $expires === null) ? null : $expires;
         if($frame=='workerman'){
            $response = new ResponseObj($request);
         }else{
@@ -159,7 +176,7 @@ function setcookies($request,$keyvalue = [], $expires = 0, $path = '', $domain =
         }
         if($keyvalue){
             foreach($keyvalue as $key=>$value){
-                $return = $response->cookie($key,$value,$expires,$path,$domain,$secure,$http_only);
+                $return = $response->cookie($key,$value,$maxAge,$path,$domain,$secure,$http_only);
             }
             if($frame=='workerman'){
                $cookies = $response->getHeader('Set-Cookie');
@@ -202,21 +219,21 @@ function captchaCheck($request,$name = '', $value = '',$connect = 'default', $ca
     }
     $namePrefix = $config[$connect]['namePrefix'] ?? 'RC_CAPTCHA_';
     $store = $config[$connect]['store'] ?? 'cache';
-    $autoDelte = $config[$connect]['autoDelte'] ?? true;
+    $autoDelete = $config[$connect]['autoDelete'] ?? ($config[$connect]['autoDelte'] ?? true);
     $name = md5($namePrefix.$name.$request->ip().strtolower($value));
     $cache = $cache ?? cache();
     switch(strtolower($store)){
         case 'cache':
         default:
            $cache = $cache ?? cache();
-           $cacheCode = $autoDelte ? $cache->pull($name) : $cache->get($name);
+           $cacheCode = $autoDelete ? $cache->pull($name) : $cache->get($name);
            if($cacheCode===strtolower($value)){
                 return true;
            }
         break;
         case 'session':
             $session = $request->session();
-            $cacheCode = $autoDelte ? $session->pull($name) : $session->get($name);
+            $cacheCode = $autoDelete ? $session->pull($name) : $session->get($name);
             if($cacheCode===strtolower($value)){
                 return true;
             }
@@ -290,9 +307,7 @@ function validator(){
 }
 
 function xlsx($target = 'writer'){
-    static $xlsx;
-    $xlsx[$target] = $xlsx[$target] ?? ($target=='writer' ? new Xlsx() : new XlsxReader());
-    return $xlsx[$target];
+    return $target == 'writer' ? new Xlsx() : new XlsxReader();
 }
 
 function token($request,$guard = null,$cache = null){
@@ -327,13 +342,10 @@ function mailer($connect=null){
 }
 
 function curl($multiCurl = false){
-    static $curl;
     if(!$multiCurl){
-        $curl['curl'] = $curl['curl'] ?? new Curl();
-        return $curl['curl'];
+        return new Curl();
     }
-    $curl['multiCurl'] = $curl['multiCurl'] ?? new MultiCurl();
-    return $curl['multiCurl'];
+    return new MultiCurl();
 }
 
 function simple_database($request,...$config){
@@ -346,7 +358,7 @@ function cache($engine='',$type=null,$id=1,$class=null,$config=null){
         $engine = Config::get('cache','default_frame') ?? ''; 
     }
     if(!isset($CACHE[$engine])){
-        if(!class_exists($class)){
+        if(!is_string($class) || $class === '' || !class_exists($class)){
             throw new \Exception('cache engine '.$engine.' class['.$class.'] not load!');
         }
         if($config){
@@ -387,7 +399,7 @@ function redis($engine='',$type=null,$id=1,$class=null,$clusterclass=null,$confi
         $engine = Config::get('redis','default_frame') ?? ''; 
     }
     if(!isset($RD[$engine])){
-        if(!class_exists($class)){
+        if(!is_string($class) || $class === '' || !class_exists($class)){
             throw new \Exception('redis engine '.$engine.' class not load!');
         }
         if($config){
@@ -407,6 +419,7 @@ function redis($engine='',$type=null,$id=1,$class=null,$clusterclass=null,$confi
     if($class){
         return ;
     }
+    $connectionKey = 'id_'.$id;
     if($type){
         switch($engine){
             case 'raw':
@@ -417,12 +430,12 @@ function redis($engine='',$type=null,$id=1,$class=null,$clusterclass=null,$confi
                        throw new \Exception('no redis '.$type.' config set'); 
                     }
                 }
-                if(!isset($RD[$engine][$type]['id_'.$id])){
+                if(!isset($RD[$engine][$type][$connectionKey])){
                     $conf = $_config[$engine]['connections'][$type];
                     $host = $conf['host'] ?? '';
                     $port = $conf['port'] ?? 6379;
                     $timeout =  $conf['timeout'] ?? 2;
-                    $read_timeout = $conf['read_timeout'] ?? $timeout;
+                    $read_timeout = $conf['read_timeout'] ?? ($conf['readTimeout'] ?? $timeout);
                     $persistent =  $conf['persistent'] ?? false;
                     $password =  $conf['password'] ?? '';
                     $select =  $conf['select'] ?? 'x';
@@ -434,13 +447,13 @@ function redis($engine='',$type=null,$id=1,$class=null,$clusterclass=null,$confi
                             if ($password) {
                                 $args[] = $password;
                             }
-                            $RD[$engine][$type]['id_'.$id] = $redis = new $_cluster_class[$engine](...$args);
+                            $RD[$engine][$type][$connectionKey] = $redis = new $_cluster_class[$engine](...$args);
                             if (!empty($prefix)) {
                                 $redis->setOption(\Redis::OPT_PREFIX, $prefix);
                             }
                             unset($redis);
                         }else{
-                            $RD[$engine][$type]['id_'.$id] = $redis = new $_class[$engine];
+                            $RD[$engine][$type][$connectionKey] = $redis = new $_class[$engine];
                             if($persistent){
                                 $redis->pconnect($host, (int) $port, $timeout, 'persistent_id_' . $select);
                             }else{
@@ -455,10 +468,10 @@ function redis($engine='',$type=null,$id=1,$class=null,$clusterclass=null,$confi
                         }
                     } elseif (class_exists('\Predis\Client')) {
                         $params = [];
-                        foreach ($conf as $key => $val) {
-                            if (in_array($key, ['aggregate', 'cluster', 'connections', 'exceptions', 'prefix', 'profile', 'replication', 'parameters'])) {
-                                $params[$key] = $val;
-                                unset($conf[$key]);
+                            foreach ($conf as $paramKey => $val) {
+                                if (in_array($paramKey, ['aggregate', 'cluster', 'connections', 'exceptions', 'prefix', 'profile', 'replication', 'parameters'])) {
+                                    $params[$paramKey] = $val;
+                                    unset($conf[$paramKey]);
                             }
                         }
                         if ('' == $password) {
@@ -470,11 +483,11 @@ function redis($engine='',$type=null,$id=1,$class=null,$clusterclass=null,$confi
                             $params['cluster'] = 'redis';
                             unset($conf['host']);
                             $params = array_merge($conf,$params);
-                            $RD[$engine][$type]['id_'.$id] = new \Predis\Client($host, $params);
+                            $RD[$engine][$type][$connectionKey] = new \Predis\Client($host, $params);
                         }
                         /*支持集群*/
                         else{
-                            $RD[$engine][$type]['id_'.$id] = new \Predis\Client($conf, $params);
+                            $RD[$engine][$type][$connectionKey] = new \Predis\Client($conf, $params);
                         }
                         
 
@@ -483,16 +496,16 @@ function redis($engine='',$type=null,$id=1,$class=null,$clusterclass=null,$confi
                     }
                     
                 }
-                if(!isset($_heartbeat[$engine][$type]['id_'.$id]) && IS_CLI){
-                    $_heartbeat[$engine][$type]['id_'.$id] = Config::get('app','cli_frame');
-                    if($_heartbeat[$engine][$type]['id_'.$id]=='workerman'){
-                        \Workerman\Timer::add(240, function ()  use ($RD,$engine,$type,$id){
-                            $RD[$engine][$type]['id_'.$id]->get('ping');   
+                if(!isset($_heartbeat[$engine][$type][$connectionKey]) && IS_CLI){
+                    $_heartbeat[$engine][$type][$connectionKey] = Config::get('app','cli_frame');
+                    if($_heartbeat[$engine][$type][$connectionKey]=='workerman'){
+                        \Workerman\Timer::add(240, function ()  use ($RD,$engine,$type,$connectionKey){
+                            $RD[$engine][$type][$connectionKey]->get('ping');   
                         });
                     }
-                    if($_heartbeat[$engine][$type]['id_'.$id]=='swoole'){
-                        \Swoole\Timer::tick(24000, function ()  use ($RD,$engine,$type,$id){
-                            $RD[$engine][$type]['id_'.$id]->get('ping');    
+                    if($_heartbeat[$engine][$type][$connectionKey]=='swoole'){
+                        \Swoole\Timer::tick(24000, function ()  use ($RD,$engine,$type,$connectionKey){
+                            $RD[$engine][$type][$connectionKey]->get('ping');    
                         });
                     }
                 }
@@ -508,27 +521,27 @@ function redis($engine='',$type=null,$id=1,$class=null,$clusterclass=null,$confi
                 }
                 $conf = $_config[$engine]['connections'][$type];
                 if($conf['type']=='cluster'){
-                    $RD[$engine][$type]['id_'.$id] = $RD[$engine][$type]['id_'.$id] ?? new $_cluster_class[$engine]($conf);
+                    $RD[$engine][$type][$connectionKey] = $RD[$engine][$type][$connectionKey] ?? new $_cluster_class[$engine]($conf);
                 }else{
-                    $RD[$engine][$type]['id_'.$id] = $RD[$engine][$type]['id_'.$id] ?? new $_class[$engine]($conf['host'],$conf['port'],$conf['password'] ?? '',$conf['database'],$conf['timeout'],$conf['retryInterval'],$conf['readTimeout']);
+                    $RD[$engine][$type][$connectionKey] = $RD[$engine][$type][$connectionKey] ?? new $_class[$engine]($conf['host'],$conf['port'],$conf['password'] ?? '',$conf['database'],$conf['timeout'],$conf['retryInterval'],$conf['readTimeout']);
                 }
-                 if(!isset($_heartbeat[$engine][$type]['id_'.$id]) && IS_CLI){
-                    $_heartbeat[$engine][$type]['id_'.$id] = Config::get('app','cli_frame');
-                    if($_heartbeat[$engine][$type]['id_'.$id]=='workerman'){
-                        \Workerman\Timer::add(240, function ()  use ($RD,$engine,$type,$id){
-                            $RD[$engine][$type]['id_'.$id]->get('ping');   
+                 if(!isset($_heartbeat[$engine][$type][$connectionKey]) && IS_CLI){
+                    $_heartbeat[$engine][$type][$connectionKey] = Config::get('app','cli_frame');
+                    if($_heartbeat[$engine][$type][$connectionKey]=='workerman'){
+                        \Workerman\Timer::add(240, function ()  use ($RD,$engine,$type,$connectionKey){
+                            $RD[$engine][$type][$connectionKey]->get('ping');   
                         });
                     }
-                    if($_heartbeat[$engine][$type]['id_'.$id]=='swoole'){
-                        \Swoole\Timer::tick(24000, function ()  use ($RD,$engine,$type,$id){
-                            $RD[$engine][$type]['id_'.$id]->get('ping');    
+                    if($_heartbeat[$engine][$type][$connectionKey]=='swoole'){
+                        \Swoole\Timer::tick(24000, function ()  use ($RD,$engine,$type,$connectionKey){
+                            $RD[$engine][$type][$connectionKey]->get('ping');    
                         });
                     }
                 }
             break;
         }
     }
-    return $RD[$engine][$type]['id_'.$id];
+    return $RD[$engine][$type][$connectionKey];
 }
 
 
@@ -540,11 +553,8 @@ function database($engine='',$type=null,$id=1,$class=null,$config=null,$support=
     }
     if(!isset($DB[$engine])){
         
-        if(!class_exists($class)){
+        if(!is_string($class) || $class === '' || !class_exists($class)){
             throw new \Exception('db engine '.$engine.' class not load!');   
-        }
-        if(!in_array($config['default'],$_support[$engine])){
-            throw new \Exception('db driver ['.$config['default'].'] not supported by db engine ['.$engine.'] yet!');
         }
         $type = $config['default'];
         if($config){
@@ -561,6 +571,7 @@ function database($engine='',$type=null,$id=1,$class=null,$config=null,$support=
     if($class){
         return ;
     }
+    $key = 'id_'.$id;
     if($type){
         if(!in_array($type,$_support[$engine])){
             throw new \Exception('db driver ['.$type.'] not supported by db engine ['.$engine.'] yet!');
@@ -575,68 +586,114 @@ function database($engine='',$type=null,$id=1,$class=null,$config=null,$support=
             }
         }
         $config = $configTmp;
+        
         switch($engine){
             case 'medoo':
-                $DB[$engine][$type]['id_'.$id] = $DB[$engine][$type]['id_'.$id] ?? new $_class[$engine]($config['connections'][$type]);
-                if(!isset($_heartbeat[$engine][$type]['id_'.$id]) && IS_CLI && $type!=='mongodb'){
-                    $_heartbeat[$engine][$type]['id_'.$id] = Config::get('app','cli_frame');
-                    if($_heartbeat[$engine][$type]['id_'.$id]=='workerman'){
-                        \Workerman\Timer::add(240, function () use ($DB,$engine,$type,$id){
-                            $DB[$engine][$type]['id_'.$id]->query('select 1');   
+                $DB[$engine][$type][$key] = $DB[$engine][$type][$key] ?? new $_class[$engine]($config['connections'][$type]);
+                if(!isset($_heartbeat[$engine][$type][$key]) && IS_CLI && $type!=='mongodb'){
+                    $_heartbeat[$engine][$type][$key] = Config::get('app','cli_frame');
+                    if($_heartbeat[$engine][$type][$key]=='workerman'){
+                        $timer_id = \Workerman\Timer::add(240, function () use ($DB, $engine, $type, $key, &$timer_id) {
+                            try {
+                                $DB[$engine][$type][$key]->query('select 1');
+                            } catch (\Throwable $e) {
+                                // 记录日志（可选）
+                                echo "Heartbeat error ({$key}): " . $e->getMessage() . PHP_EOL;
+                                // 删除定时器
+                                \Workerman\Timer::del($timer_id);
+                                echo "Heartbeat timer deleted for {$key}" . PHP_EOL;
+                            }
                         });
                     }
-                    if($_heartbeat[$engine][$type]['id_'.$id]=='swoole'){
-                        \Swoole\Timer::tick(24000, function ()  use ($DB,$engine,$type,$id){
-                            $DB[$engine][$type]['id_'.$id]->query('select 1');   
+                    if($_heartbeat[$engine][$type][$key]=='swoole'){
+                        $timer_id = \Swoole\Timer::tick(240000, function ($timer_id) use ($DB, $engine, $type, $key) {
+                            try {
+                                $DB[$engine][$type][$key]->query('select 1');
+                            } catch (\Throwable $e) {
+                                echo "Heartbeat error ({$key}): " . $e->getMessage() . PHP_EOL;
+                                // 清除 Swoole 定时器
+                                \Swoole\Timer::clear($timer_id);
+                                echo "Heartbeat timer cleared for {$key}" . PHP_EOL;
+                            }
                         });
                     }
                 }
             break;
             case 'think':
-                if(!isset($DB[$engine][$type]['id_'.$id])){
+                if(!isset($DB[$engine][$type][$key])){
                     $config['default'] = $type;
-                    $DB[$engine][$type]['id_'.$id] = $_class[$engine];
-                    $DB[$engine][$type]['id_'.$id]::setConfig($config);
+                    $DB[$engine][$type][$key] = $_class[$engine];
+                    $DB[$engine][$type][$key]::setConfig($config);
 
-                    if(!isset($_heartbeat[$engine][$type]['id_'.$id]) && IS_CLI && $type!=='mongodb'){
-                        $_heartbeat[$engine][$type]['id_'.$id] = Config::get('app','cli_frame');
-                        if($_heartbeat[$engine][$type]['id_'.$id]=='workerman'){
-                            \Workerman\Timer::add(240, function ()  use ($DB,$engine,$type,$id){
-                                $DB[$engine][$type]['id_'.$id]::query('select 1');   
+                    if(!isset($_heartbeat[$engine][$type][$key]) && IS_CLI && $type!=='mongodb'){
+                        $_heartbeat[$engine][$type][$key] = Config::get('app','cli_frame');
+                        if($_heartbeat[$engine][$type][$key]=='workerman'){
+                            $timer_id = \Workerman\Timer::add(240, function () use ($DB, $engine, $type, $key, &$timer_id) {
+                                try {
+                                    $DB[$engine][$type][$key]::query('select 1');
+                                } catch (\Throwable $e) {
+                                    // 记录日志（可选）
+                                    echo "Heartbeat error ({$key}): " . $e->getMessage() . PHP_EOL;
+                                    // 删除定时器
+                                    \Workerman\Timer::del($timer_id);
+                                    echo "Heartbeat timer deleted for {$key}" . PHP_EOL;
+                                }
                             });
                         }
-                        if($_heartbeat[$engine][$type]['id_'.$id]=='swoole'){
-                            \Swoole\Timer::tick(24000, function ()  use ($DB,$engine,$type,$id){
-                                $DB[$engine][$type]['id_'.$id]::query('select 1');   
+                        if($_heartbeat[$engine][$type][$key]=='swoole'){
+                            $timer_id = \Swoole\Timer::tick(240000, function ($timer_id) use ($DB, $engine, $type, $key) {
+                                try {
+                                    $DB[$engine][$type][$key]::query('select 1');
+                                } catch (\Throwable $e) {
+                                    echo "Heartbeat error ({$key}): " . $e->getMessage() . PHP_EOL;
+                                    // 清除 Swoole 定时器
+                                    \Swoole\Timer::clear($timer_id);
+                                    echo "Heartbeat timer cleared for {$key}" . PHP_EOL;
+                                }
                             });
                         }
                     }
                 }
             break;
             case 'laravel':
-                if(!isset($DB[$engine][$type]['id_'.$id])){
-                    $DB[$engine][$type]['id_'.$id] = new $_class[$engine];
-                    $DB[$engine][$type]['id_'.$id]->getDatabaseManager()->extend('mongodb', function($config, $name) {
+                if(!isset($DB[$engine][$type][$key])){
+                    $DB[$engine][$type][$key] = new $_class[$engine];
+                    $DB[$engine][$type][$key]->getDatabaseManager()->extend('mongodb', function($config, $name) {
                         $config['name'] = $name;
                         return new mongodbConnection($config);
                     });
-                    $DB[$engine][$type]['id_'.$id]->addConnection($config['connections'][$type]);
+                    $DB[$engine][$type][$key]->addConnection($config['connections'][$type]);
                     if (class_exists('\Illuminate\Events\Dispatcher')) {
-                        $DB[$engine][$type]['id_'.$id]->setEventDispatcher(new \Illuminate\Events\Dispatcher(new \Illuminate\Container\Container));
+                        $DB[$engine][$type][$key]->setEventDispatcher(new \Illuminate\Events\Dispatcher(new \Illuminate\Container\Container));
                     }
-                    $DB[$engine][$type]['id_'.$id]->setAsGlobal();
-                    $DB[$engine][$type]['id_'.$id]->bootEloquent();
+                    $DB[$engine][$type][$key]->setAsGlobal();
+                    $DB[$engine][$type][$key]->bootEloquent();
 
-                    if(!isset($_heartbeat[$engine][$type]['id_'.$id]) && IS_CLI && $type!=='mongodb'){
-                        $_heartbeat[$engine][$type]['id_'.$id] = Config::get('app','cli_frame');
-                        if($_heartbeat[$engine][$type]['id_'.$id]=='workerman'){
-                            \Workerman\Timer::add(240, function ()  use ($DB,$engine,$type,$id){
-                                $DB[$engine][$type]['id_'.$id]::select('select 1');   
+                    if(!isset($_heartbeat[$engine][$type][$key]) && IS_CLI && $type!=='mongodb'){
+                        $_heartbeat[$engine][$type][$key] = Config::get('app','cli_frame');
+                        if($_heartbeat[$engine][$type][$key]=='workerman'){
+                            $timer_id = \Workerman\Timer::add(240, function () use ($DB, $engine, $type, $key, &$timer_id) {
+                                try {
+                                    $DB[$engine][$type][$key]::select('select 1');
+                                } catch (\Throwable $e) {
+                                    // 记录日志（可选）
+                                    echo "Heartbeat error ({$key}): " . $e->getMessage() . PHP_EOL;
+                                    // 删除定时器
+                                    \Workerman\Timer::del($timer_id);
+                                    echo "Heartbeat timer deleted for {$key}" . PHP_EOL;
+                                }
                             });
                         }
-                        if($_heartbeat[$engine][$type]['id_'.$id]=='swoole'){
-                            \Swoole\Timer::tick(2400, function ()  use ($DB,$engine,$type,$id){
-                                $DB[$engine][$type]['id_'.$id]::select('select 1');   
+                        if($_heartbeat[$engine][$type][$key]=='swoole'){
+                            $timer_id = \Swoole\Timer::tick(240000, function ($timer_id) use ($DB, $engine, $type, $key) {
+                                try {
+                                    $DB[$engine][$type][$key]::select('select 1');
+                                } catch (\Throwable $e) {
+                                    echo "Heartbeat error ({$key}): " . $e->getMessage() . PHP_EOL;
+                                    // 清除 Swoole 定时器
+                                    \Swoole\Timer::clear($timer_id);
+                                    echo "Heartbeat timer cleared for {$key}" . PHP_EOL;
+                                }
                             });
                         }
                     }
@@ -644,12 +701,30 @@ function database($engine='',$type=null,$id=1,$class=null,$config=null,$support=
             break;
         }
     }
-    return $DB[$engine][$type]['id_'.$id];
+    return $DB[$engine][$type][$key];
 }
 
 function rcEnv($name = null, $default = null)
 {
     return Config::getEnv($name, $default);
+}
+
+function rc_apply_memory_limit($memoryLimit = null){
+    $memoryLimit = $memoryLimit ?? Config::getEnv('app.memory_limit', null);
+    if($memoryLimit === null){
+        return false;
+    }
+    if(is_string($memoryLimit)){
+        $memoryLimit = trim($memoryLimit);
+        if($memoryLimit === ''){
+            return false;
+        }
+    }elseif(is_int($memoryLimit) || is_float($memoryLimit)){
+        $memoryLimit = (string)$memoryLimit;
+    }else{
+        return false;
+    }
+    return \ini_set('memory_limit', $memoryLimit);
 }
 
 function cliCheck($check_func_map = []){
@@ -712,11 +787,8 @@ function stopwatch($eventname='__controller__'){
      }
      $event = Stopwatch::stop($eventname);
      Stopwatch::reset();
-     $getPeriods = $event->getPeriods();
-     $Period = $getPeriods[0];
-     $endtime = $Period->getEndTime();
      $memory = $event->getMemory();
-     return ['time'=>$endtime,'memory'=>$memory];
+    return ['time'=>$event->getDuration(),'memory'=>$memory];
 }
 
 function is_phar(){
@@ -732,19 +804,23 @@ function phar_path(){
 }
 
 function runtime_path(){
-    return Config::get('app','runtime_path') ?? phar_path()."/runtime";
+    $path = Config::get('app','runtime_path');
+    return ($path !== null && $path !== '') ? $path : phar_path()."/runtime";
 }
 
 function ssl_path(){
-    return Config::get('app','ssl_path') ?? BASE_PATH."/ssl";
+    $path = Config::get('app','ssl_path');
+    return ($path !== null && $path !== '') ? $path : phar_path()."/ssl";
 }
 
 function public_path(){
-    return Config::get('app','public_path') ?? BASE_PATH."/public";
+    $path = Config::get('app','public_path');
+    return ($path !== null && $path !== '') ? $path : phar_path()."/public";
 }
 
 function view_path(){
-    return BASE_PATH."/view";
+    $path = Config::get('app','view_path');
+    return ($path !== null && $path !== '') ? $path : phar_path()."/view";
 }
 
 function worker_bind($worker, $class, $type='workerman') {

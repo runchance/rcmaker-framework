@@ -19,6 +19,8 @@ class Mix implements Bootstrap{
 		'timeout'=>5,
 		'retryInterval'=>0,
 		'readTimeout'=>-1,
+		'persistent'=>false,
+		'prefix'=>'',
 	];
 	private static function creat_config($config){
 		$_config = [];
@@ -56,7 +58,7 @@ class Mix implements Bootstrap{
 Class MixClusterDriver extends Driver{
 	public function __construct($config){
 		$timeout = $config['timeout'] ?? 2;
-        $read_timeout = $config['read_timeout'] ?? $timeout;
+	        $read_timeout = $config['read_timeout'] ?? ($config['readTimeout'] ?? $timeout);
         $persistent = $config['persistent'] ?? false;
         $password = $config['password'] ?? '';
         $args = [null, $config['host'], $timeout, $read_timeout, $persistent];

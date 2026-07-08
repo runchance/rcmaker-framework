@@ -14,6 +14,7 @@
 	class Rcmaker{
 		public static function start(){
 			static $requests;
+			\rc_apply_memory_limit();
 			if(defined('IS_SCRIPT')){
 			    $id = 999999;
 		        $requests[$id] = $requests[$id] ?? new Request($id);

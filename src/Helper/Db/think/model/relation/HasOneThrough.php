@@ -28,7 +28,7 @@ class HasOneThrough extends HasManyThrough
      * @param  Closure $closure     闭包查询条件
      * @return Model
      */
-    public function getRelation(array $subRelation = [], Closure $closure = null)
+    public function getRelation(array $subRelation = [], ?Closure $closure = null)
     {
         if ($closure) {
             $closure($this->getClosureType($closure));
@@ -55,7 +55,7 @@ class HasOneThrough extends HasManyThrough
      * @param  array   $cache       关联缓存
      * @return void
      */
-    public function eagerlyResultSet(array &$resultSet, string $relation, array $subRelation = [], Closure $closure = null, array $cache = []): void
+    public function eagerlyResultSet(array &$resultSet, string $relation, array $subRelation = [], ?Closure $closure = null, array $cache = []): void
     {
         $localKey   = $this->localKey;
         $foreignKey = $this->foreignKey;
@@ -102,7 +102,7 @@ class HasOneThrough extends HasManyThrough
      * @param  array   $cache       关联缓存
      * @return void
      */
-    public function eagerlyResult(Model $result, string $relation, array $subRelation = [], Closure $closure = null, array $cache = []): void
+    public function eagerlyResult(Model $result, string $relation, array $subRelation = [], ?Closure $closure = null, array $cache = []): void
     {
         $localKey   = $this->localKey;
         $foreignKey = $this->foreignKey;
@@ -135,7 +135,7 @@ class HasOneThrough extends HasManyThrough
      * @param  array   $cache       关联缓存
      * @return array
      */
-    protected function eagerlyWhere(array $where, string $key, array $subRelation = [], Closure $closure = null, array $cache = []): array
+    protected function eagerlyWhere(array $where, string $key, array $subRelation = [], ?Closure $closure = null, array $cache = []): array
     {
         // 预载入关联查询 支持嵌套预载入
         $keys = $this->through->where($where)->column($this->throughPk, $this->foreignKey);

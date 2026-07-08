@@ -50,24 +50,100 @@ class worker{
 	    'enable_static_file',
 	    'enable_static_php',
 	    'handler',
-	    'bootstrap'
+	    'bootstrap',
+	    'constructor',
+	    'autoload',
+	    'default_timezone'
 	];
 
 	public static function getWorker(){
-		static $_responselist;
-		return $_responselist;
+		return static::$_worker;
+	}
+
+	private static function ensureDirectory($dir){
+		if($dir && !is_dir($dir)){
+			mkdir($dir, 0755, true);
+		}
+	}
+
+	private static function ensureConfigFileDirs($config, $keys){
+		foreach($keys as $key){
+			if(!empty($config[$key])){
+				static::ensureDirectory(dirname($config[$key]));
+			}
+		}
+	}
+
+	private static function loadProcessClass($handler){
+		if(!is_string($handler) || $handler === ''){
+			return null;
+		}
+		if(class_exists($handler)){
+			return $handler;
+		}
+		if(strpos($handler, '\\') !== false || !preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $handler)){
+			return null;
+		}
+		$class_file = BASE_PATH.'/support/process/'.$handler.'.php';
+		$class = "support\\process\\".$handler;
+		return Container::loadClass($class_file,$class) ? $class : null;
+	}
+
+	private static function parseListen($listen){
+		$parselisten = explode('://', (string)$listen, 2);
+		if(count($parselisten) !== 2 || $parselisten[1] === ''){
+			return null;
+		}
+		$scheme = strtolower($parselisten[0]);
+		$target = $parselisten[1];
+		if($scheme === 'unix'){
+			return [$scheme, $target, 0];
+		}
+		$pos = strrpos($target, ':');
+		if($pos === false){
+			return null;
+		}
+		$address = substr($target, 0, $pos);
+		$port = (int)substr($target, $pos + 1);
+		if($address === '' || $port <= 0){
+			return null;
+		}
+		return [$scheme, trim($address, '[]'), $port];
+	}
+
+	private static function swooleConfigKey($key){
+		if($key === 'count'){
+			return 'worker_num';
+		}
+		if($key === 'reusePort'){
+			return 'enable_reuse_port';
+		}
+		return $key;
+	}
+
+	private static function shouldWarmupStaticPreload($start_app){
+		if(!$start_app){
+			return false;
+		}
+		global $argv;
+		if(!isset($argv[1])){
+			return false;
+		}
+		$command = strtolower(trim((string)$argv[1]));
+		return in_array($command, ['start', 'restart'], true);
 	}
 
 	
 	public static function stopMaster(){
 		if(isset(static::$_worker)){
+			$pidfile = null;
 			if(self::$_frame=='workerman'){
 				$pidfile = Config::get('worker','pid_file');
 			}
 			if(self::$_frame=='swoole'){
 				$pidfile = Config::get('swoole','pid_file');
 			}
-			$pid = \is_file($pidfile) ? \file_get_contents($pidfile) : null;
+			$pid = $pidfile && \is_file($pidfile) ? \file_get_contents($pidfile) : null;
 			$master_pid = $pid ?? posix_getppid(); 
 			$sig = \SIGTERM;
 			\posix_kill($master_pid, $sig);
@@ -101,18 +177,17 @@ class worker{
             $requests[$id]->set($request,$id,$responses[$id]);
            	$responses[$id]->set($connection,$id,$requests[$id]);
             Controller::call($requests[$id],$responses[$id],$config);
-            $requests[$id]->unset($id);
-            $responses[$id]->unset($id);
         } catch (\Throwable $e){
         	$render = Controller::exceptionResponse($e,$requests[$id],$responses[$id]);
         	if(is_array($render)){
         		list($code,$headers,$message) = $render;
         		$responses[$id]->bad($requests[$id],$code,$message);
-        		$requests[$id]->unset($id);
-           		$responses[$id]->unset($id);
         	}else{
         		$responses[$id]->bad($requests[$id],500,$e->getMessage());
         	}
+		} finally {
+			$requests[$id]->unset($id);
+			$responses[$id]->unset($id);
         }
         return null;
     }
@@ -121,9 +196,7 @@ class worker{
 		$frame = Config::get('app','cli_frame');
 		$start_app = Config::get('app','start_app');
 		$_logDir = runtime_path() . '/logs';
-        if (!is_dir($_logDir)) {
-               mkdir($_logDir, 0755, true);
-        }
+		static::ensureDirectory($_logDir);
 		if(!$frame){
 			exit("\033[31;40mno cli mode frame setting!\033[0m\n");
 		}
@@ -135,6 +208,8 @@ class worker{
 			cliCheck(['posix_kill','posix_getppid']);
 			global $argv;
 			$config = self::$_config = Config::get('swoole');
+			static::$_maxRequestCount = $config['max_request'] ?? static::$_maxRequestCount;
+			static::ensureConfigFileDirs($config, ['pid_file', 'log_file']);
 			if(!isset($argv[1]) || ($argv[1]!=='start' && $argv[1]!=='stop' && $argv[1]!=='reload')){
 				$usage = "Usage: php yourfile <command> [mode]\nCommands: \nstart\t\tStart worker in DEBUG mode.\n\t\tUse mode -d to start in DAEMON mode.\nstop\t\tStop worker.\nreload\t\tReload codes.\n";
 				exit($usage);
@@ -214,11 +289,6 @@ class worker{
 
 				
 				
-				$config_map = [
-					'count'=>'worker_num',
-					'reusePort'=>''
-				];
-
 				$processes = array();
 				$servers = array();
 				$process_config = Config::get('process', null, null, []);
@@ -251,13 +321,21 @@ class worker{
 					if(!isset($pconfig['handler'])){
 						exit("\033[31;40mprocess error: process handler not exists!\033[0m\n");
 					}
+					$class = static::loadProcessClass($pconfig['handler']);
+					if($class === null){
+						exit("\033[31;40mprocess error: class {$pconfig['handler']} not exists!\033[0m\n");
+					}
 					$workmode = null;
 					if(!isset($pconfig['listen'])){
 						$workmode = 'process';
 					}else{
-						$parselisten = explode('://',$pconfig['listen']);
+						$listenConfig = static::parseListen($pconfig['listen']);
+						if($listenConfig === null){
+							exit("\033[31;40mprocess error: listen {$pconfig['listen']} invalid!\033[0m\n");
+						}
+						list($scheme, $address, $port) = $listenConfig;
 						$protocol = null;
-						switch(strtolower($parselisten[0])){
+						switch($scheme){
 							case "websocket": $workmode='websocket'; $protocol='open_websocket_protocol'; break;
 							case "http": case "https": $workmode='http'; $protocol=['open_http_protocol','open_http2_protocol']; break;
 							case "mqtt": $workmode='mqtt'; $protocol='open_mqtt_protocol';  break;
@@ -266,24 +344,10 @@ class worker{
 							case "unix": $workmode='unix';  break;
 							case "text": $workmode='text';  break;
 						}
-						$listen = explode(':',$parselisten[1]);
-						$address = $listen[0];
-						$port = $listen[1];
 					}
 					if($workmode){
 						switch($workmode){
 							case 'process':
-								if(!class_exists($pconfig['handler'])){
-									$class_file = BASE_PATH.'/support/process/'.$pconfig['handler'].'.php';
-									$class = "support\\process\\".$pconfig['handler'];
-									if(!Container::loadClass($class_file,$class)){
-										exit("\033[31;40mprocess error: class {$class} not exists!\033[0m\n");
-										return ;
-									}
-								}else{
-									$class = $pconfig['handler'];
-								}
-								
 								$process = new \Swoole\Process(function($process) use ($server,$pconfig,$class){
 									$instance = Container::make($class, array_merge(['type'=>'swoole','worker'=>$process,'timer'=>\Swoole\Timer::class],$pconfig['constructor'] ?? []) ?? []);
 									
@@ -331,7 +395,7 @@ class worker{
 								}
 								foreach($pconfig as $key=>$conf){
 									$orgikey = $key;
-									$key = $config_map[$key] ?? $key;
+									$key = static::swooleConfigKey($key);
 									if(!in_array($key,static::$config_exclude) && $key){
 										if($key=='reactor_num' || $key=='worker_num'){
 											
@@ -374,15 +438,6 @@ class worker{
 										    'open_http2_protocol' => false,
 										]);
 									}
-								}
-								if(!class_exists($pconfig['handler'])){
-									$class_file = BASE_PATH.'/support/process/'.$pconfig['handler'].'.php';
-									$class = "support\\process\\".$pconfig['handler'];
-									if(!Container::loadClass($class_file,$class)){
-										exit("\033[31;40mprocess error: class {$class} not exists!\033[0m\n");
-									}
-								}else{
-									$class = $pconfig['handler'];
 								}
 								$instance = Container::make($class, array_merge(['type'=>'swoole','worker'=>$servers[$proc_name],'timer'=>\Swoole\Timer::class],$pconfig['constructor'] ?? []));
 								worker_bind($servers[$proc_name], $instance,'swoole');
@@ -470,6 +525,10 @@ class worker{
 	        		return false;
 				});
 
+				if(static::shouldWarmupStaticPreload($start_app)){
+					Controller::warmupStaticPreload();
+				}
+
 				Stopwatch::$_framework = stopwatch('__frame__');
 				$server->start();
 			}else{
@@ -543,11 +602,6 @@ class worker{
 					}],
 				] : [];
 
-				$config_map = [
-					'count'=>'worker_num',
-					'reusePort'=>''
-				];
-
 				$processes = array();
 				$servers = array();
 				$process_config = Config::get('process', null, null, []);
@@ -576,19 +630,31 @@ class worker{
 				     $process_config = array_merge($process_config, Config::get('queue','consumer_process') ?? []);
 			    }
 
+				if(static::shouldWarmupStaticPreload($start_app)){
+					Controller::warmupStaticPreload();
+				}
+
 	
 
 				foreach ($process_config as $proc_name => $pconfig) {
 					if(!isset($pconfig['handler'])){
 						exit("\033[31;40mprocess error: process handler not exists!\033[0m\n");
 					}
+					$class = static::loadProcessClass($pconfig['handler']);
+					if($class === null){
+						exit("\033[31;40mprocess error: class {$pconfig['handler']} not exists!\033[0m\n");
+					}
 					$workmode = null;
 					if(!isset($pconfig['listen'])){
 						$workmode = 'process';
 					}else{
-						$parselisten = explode('://',$pconfig['listen']);
+						$listenConfig = static::parseListen($pconfig['listen']);
+						if($listenConfig === null){
+							exit("\033[31;40mprocess error: listen {$pconfig['listen']} invalid!\033[0m\n");
+						}
+						list($scheme, $address, $port) = $listenConfig;
 						$protocol = null;
-						switch(strtolower($parselisten[0])){
+						switch($scheme){
 							case "websocket": $workmode='websocket';  break;
 							case "http": case "https": $workmode='http'; break;
 							case "mqtt": $workmode='mqtt';   break;
@@ -597,24 +663,10 @@ class worker{
 							case "unix": $workmode='unix';  break;
 							case 'text': $workmode='text';  break;
 						}
-						$listen = explode(':',$parselisten[1]);
-						$address = $listen[0];
-						$port = $listen[1];
 					}
 					if($workmode){
 						switch($workmode){
 							case 'process':
-								if(!class_exists($pconfig['handler'])){
-									$class_file = BASE_PATH.'/support/process/'.$pconfig['handler'].'.php';
-									$class = "support\\process\\".$pconfig['handler'];
-									if(!Container::loadClass($class_file,$class)){
-										exit("\033[31;40mprocess error: class {$class} not exists!\033[0m\n");
-										return ;
-									}
-								}else{
-									$class = $pconfig['handler'];
-								}
-
 								$process[] = ['protocol'=>'process','name'=>$proc_name,'workers'=>$pconfig['count'] ?? 1,'callback'=>function($server,$workid) use ($pconfig,$class){
 									foreach(($pconfig['bootstrap'] ?? []) as $bootstrap){
 										$bootstrap::start();
@@ -630,17 +682,6 @@ class worker{
 								}];
 							break;
 							case 'websocket':case 'http': case 'tcp': case 'https': case 'text':
-								
-								if(!class_exists($pconfig['handler'])){
-									$class_file = BASE_PATH.'/support/process/'.$pconfig['handler'].'.php';
-									$class = "support\\process\\".$pconfig['handler'];
-									if(!Container::loadClass($class_file,$class)){
-										exit("\033[31;40mprocess error: class {$class} not exists!\033[0m\n");
-									}
-								}else{
-									$class = $pconfig['handler'];
-								}
-
 								$process[] = ['protocol'=>$workmode,'name'=>$proc_name,'listen'=>$address,'port'=>$port,'workers'=>$pconfig['count'] ?? 1,'ssl'=>$pconfig['ssl'] ?? false,'callback'=>function($server,$workid) use ($pconfig,$class,$workmode){
 									if(isset($pconfig['context']['ssl']) && $pconfig['context']['ssl']){
 										$ssl = [];
@@ -661,11 +702,11 @@ class worker{
 
 									foreach($pconfig as $key=>$conf){
 										$orgikey = $key;
-										$key = $config_map[$key] ?? $key;
+										$key = static::swooleConfigKey($key);
 										if(!in_array($key,static::$config_exclude) && $key){
 											if($key!=='worker_num'){
 												$server->set([
-												    $key => $pconfig[$key]+$pconfig[$orgikey]
+												    $key => $pconfig[$orgikey]
 												]);
 											}
 											
@@ -684,7 +725,7 @@ class worker{
 									foreach(($pconfig['bootstrap'] ?? []) as $bootstrap){
 										$bootstrap::start($server);
 									}
-									foreach (($pconfig('autoload') ?? []) as $file) {
+									foreach (($pconfig['autoload'] ?? []) as $file) {
 								        include_once $file;
 								    }
 								
@@ -704,6 +745,9 @@ class worker{
 
 
 				$process_counts = array_sum(array_column($process,'workers'));
+				if($process_counts <= 0){
+					exit("\033[31;40mno swoole coroutine process found!\033[0m\n");
+				}
 				$processid = [];
 				if($config['daemonize']===true){
 					\Swoole\process::daemon();
@@ -816,6 +860,7 @@ class worker{
 				exit("\033[31;40mno workerman config found!\033[0m\n");
 			}
 			static::$_maxRequestCount = $config['max_request'] ?? static::$_maxRequestCount;
+			static::ensureConfigFileDirs($config, ['pid_file', 'log_file', 'status_file', 'stdout_file']);
 			Workerman::$onMasterReload = function(){
 			    //opcache_clean();
 			};
@@ -823,7 +868,9 @@ class worker{
 			Workerman::$pidFile                      = $config['pid_file'];
 			Workerman::$stdoutFile                   = $config['stdout_file'];
 			Workerman::$logFile                      = $config['log_file'];
-			Workerman::$statusFile                      = $config['status_file'];
+			if(isset($config['status_file']) && property_exists(Workerman::class, 'statusFile')){
+				Workerman::$statusFile                   = $config['status_file'];
+			}
 			TcpConnection::$defaultMaxPackageSize = $config['max_package_size'] ?? 10*1024*1024;
 
 
@@ -944,6 +991,9 @@ class worker{
 			    		worker_bind($processworker, $instance);
 				    };
 				}
+			}
+			if(static::shouldWarmupStaticPreload($start_app)){
+				Controller::warmupStaticPreload();
 			}
 			Stopwatch::$_framework = stopwatch('__frame__');
 			Workerman::runAll();

@@ -955,7 +955,6 @@ namespace RC\Helper;
                 }
             }
             
-            ImageDestroy($image);
         }
     
         //----------------------------------------------------------------------
@@ -970,7 +969,6 @@ namespace RC\Helper;
                 ImageJpeg($image, $filename, $q);            
             }
             
-            ImageDestroy($image);
         }
     
         //----------------------------------------------------------------------
@@ -999,8 +997,6 @@ namespace RC\Helper;
             
             $target_image =ImageCreate($imgW * $pixelPerPoint, $imgH * $pixelPerPoint);
             ImageCopyResized($target_image, $base_image, 0, 0, 0, 0, $imgW * $pixelPerPoint, $imgH * $pixelPerPoint, $imgW, $imgH);
-            ImageDestroy($base_image);
-            
             return $target_image;
         }
     }
@@ -3091,7 +3087,7 @@ namespace RC\Helper;
         public static function png($text, $outfile = false, $level = QR_ECLEVEL_L, $size = 3, $margin = 4, $saveandprint=false) 
         {
             $enc = QRencode::factory($level, $size, $margin);
-            return $enc->encodePNG($text, $outfile, $saveandprint=false);
+            return $enc->encodePNG($text, $outfile, $saveandprint);
         }
 
         //----------------------------------------------------------------------

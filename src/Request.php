@@ -10,6 +10,7 @@ class Request{
 	protected static $_frame = null;
 	protected $id = null;
 	protected $_get = array();
+	protected $_attributes = [];
 	public $app = [null,null,null];
 	public $RCresponse = null;
 	protected static $injection = ['response','R','json','xml','jsonp','redirect','pdf','P','view','V','model','M','qrcode','Q','setcookies','SC','getcookies','GC','sessions','S','captcha','C','download','D','autoForm','AF','simple_database','SDB','token','T','sms','captchaCheck','CC'];
@@ -29,18 +30,68 @@ class Request{
     	}
     }
 
+	public function __set($name, $value)
+	{
+		$this->_attributes[$name] = $value;
+	}
+
+	public function __get($name)
+	{
+		return $this->_attributes[$name] ?? null;
+	}
+
+	public function __isset($name)
+	{
+		return array_key_exists($name, $this->_attributes);
+	}
+
+	public function __unset($name)
+	{
+		unset($this->_attributes[$name]);
+	}
+
 
     public function set($request = null,$id = null,$RCresponse = null){
 		static::$_frame = static::$_frame ?? Config::get('app','cli_frame');
 		static::$_request['id_'.$id] = $request;
+		$this->_attributes = [];
 		$this->RCresponse = $RCresponse;
 	}
 
 	public function unset($id){
 		if(isset(static::$_request['id_'.$id])){
-			static::$_request['id_'.$id] = null;
+			unset(static::$_request['id_'.$id]);
 		}
+		$this->_attributes = [];
 		$this->RCresponse = null;
+	}
+
+	protected static function stripHostPort($host)
+	{
+		$host = trim((string)$host);
+		if($host === ''){
+			return $host;
+		}
+		if($host[0] === '[' && ($pos = strpos($host, ']')) !== false){
+			return substr($host, 1, $pos - 1);
+		}
+		if(substr_count($host, ':') === 1){
+			return explode(':', $host)[0];
+		}
+		return $host;
+	}
+
+	protected static function serverHeader($name, $default = '', $hasDefault = false)
+	{
+		$key = strtoupper(str_replace('-', '_', (string)$name));
+		$serverKey = 'HTTP_'.$key;
+		if(array_key_exists($serverKey, $_SERVER)){
+			return $_SERVER[$serverKey];
+		}
+		if(in_array($key, ['CONTENT_TYPE', 'CONTENT_LENGTH', 'CONTENT_MD5'], true) && array_key_exists($key, $_SERVER)){
+			return $_SERVER[$key];
+		}
+		return $hasDefault ? $default : '';
 	}
 
 	public function ip(){
@@ -89,9 +140,9 @@ class Request{
 
 		}
 		if($frame=='swoole' && $req){
-			$files = $req->files;
+			$files = $req->files ?? null;
 			if (null !== $name) {
-				$files = $files[$name];
+				$files = $files[$name] ?? null;
 			}
 		}
 		if (null === $files) {
@@ -237,11 +288,12 @@ class Request{
 
 	public function cookie($var=null,$default=null){
 		$frame = static::$_frame;
+		$hasDefault = func_num_args() >= 2;
 		if(!IS_CLI || !$frame){
 			if(!$var){
 				return $_COOKIE;
 			}
-			return $default ? ($_COOKIE[$var] ?? $default) : ($_COOKIE[$var] ?? '');
+			return array_key_exists($var, $_COOKIE) ? $_COOKIE[$var] : ($hasDefault ? $default : '');
 		}
 		$req = static::$_request['id_'.$this->id];
 		if($frame=='workerman' && $req){
@@ -252,9 +304,10 @@ class Request{
 		}
 		if($frame=='swoole' && $req){
 			if(!$var){
-				return $req->cookie;
+				return $req->cookie ?? [];
 			}
-			return isset($default) ? ($req->cookie[$var] ?? $default) : ($req->cookie[$var] ?? '');
+			$cookie = $req->cookie ?? [];
+			return array_key_exists($var, $cookie) ? $cookie[$var] : ($hasDefault ? $default : '');
 		}
 		return null;
 
@@ -266,12 +319,12 @@ class Request{
 	
 	public function header($var=null,$default=null,$id=null){
 		$frame = static::$_frame;
+		$hasDefault = func_num_args() >= 2;
 		if(!IS_CLI || !$frame){
 			if(!$var){
 				return $_SERVER;
 			}
-			$var = 'HTTP_'.strtoupper(str_replace('-', '_', $var));
-			return $default ? ($_SERVER[$var] ?? $default) : ($_SERVER[$var] ?? '');
+			return static::serverHeader($var, $default, $hasDefault);
 			
 		}
 		$req = static::$_request['id_'.$this->id];
@@ -283,9 +336,11 @@ class Request{
 		}
 		if($frame=='swoole' && $req){
 			if(!$var){
-				return $req->header;
+				return $req->header ?? [];
 			}
-			return isset($default) ? ($req->header[$var] ?? $default) : ($req->header[$var] ?? '');
+			$headers = $req->header ?? [];
+			$key = strtolower((string)$var);
+			return array_key_exists($key, $headers) ? $headers[$key] : ($hasDefault ? $default : '');
 		}
 		return null;
 	}
@@ -306,15 +361,22 @@ class Request{
 	public function host($hideport = false){
 		$frame = static::$_frame;
 		if(!IS_CLI || !$frame){
-			return $hideport ? $_SERVER['HTTP_HOST'] : $_SERVER["HTTP_HOST"].":".$_SERVER["SERVER_PORT"];
+			$host = $_SERVER['HTTP_HOST'] ?? '';
+			if($hideport){
+				return static::stripHostPort($host);
+			}
+			if($host === '' || strpos($host, ':') !== false){
+				return $host;
+			}
+			return isset($_SERVER['SERVER_PORT']) ? $host.":".$_SERVER['SERVER_PORT'] : $host;
 		}
 		$req = static::$_request['id_'.$this->id];
 		if($frame=='workerman' && $req){
 			return $req->host($hideport);
 		}
 		if($frame=='swoole' && $req){
-			$hosts = explode(':',$req->header['host']);
-			return $hideport ? $hosts[0] : $req->header['host'];
+			$host = $req->header['host'] ?? '';
+			return $hideport ? static::stripHostPort($host) : $host;
 		}
 		return null;
 	}
@@ -402,7 +464,7 @@ class Request{
     }
 
 	public function acceptJson(){
-        return false !== strpos($this->header('accept'), 'json');
+		return false !== stripos((string)$this->header('accept', ''), 'json');
     }
 }
 ?>

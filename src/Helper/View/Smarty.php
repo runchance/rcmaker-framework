@@ -61,18 +61,21 @@ class Smarty implements View
            $views->{$key} = $op;
         }
         $vars = \array_merge(static::$_vars, $vars);
-        if(isset($vars))
-        {
+        $level = \ob_get_level();
+        try {
             foreach($vars as $k=>$v)
             {
                 $views->assign($k,$v);
             }
+            \ob_start();
+            $views->display($template.'.'.$suffix);
+            return \ob_get_clean();
+        } finally {
+            static::$_vars = [];
+            while(\ob_get_level() > $level){
+                \ob_end_clean();
+            }
         }
-        \ob_start();
-        $views->display($template.'.'.$suffix);
-        $content = \ob_get_clean();
-        static::$_vars = [];
-        return $content;
     }
 
 }

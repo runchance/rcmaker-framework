@@ -28,7 +28,7 @@ trait FileOperator{
        }
        return !is_dir($path) ? \mkdir($path,$mode,$recursive) : true;
     }
-    public static function read($filename,$use_include_path = null,$context = null,$offset = 0,$maxlen = 0){
+    public static function read($filename,$use_include_path = false,$context = null,$offset = 0,$maxlen = 0){
         if(\is_file($filename)){
             return ($maxlen > 0) ? file_get_contents($filename,$use_include_path,$context,$offset,$maxlen)  : file_get_contents($filename,$use_include_path,$context,$offset);
         }

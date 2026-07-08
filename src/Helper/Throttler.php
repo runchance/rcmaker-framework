@@ -91,6 +91,11 @@ class Throttler
     {
         $tokenName = $this->prefix . $key;
 
+        if ($capacity <= 0 || $seconds <= 0 || $cost <= 0 || $cost > $capacity) {
+            $this->tokenTime = max(1, $seconds);
+            return false;
+        }
+
         // Number of tokens to add back per second
         $rate = $capacity / $seconds;
         // Number of seconds to get one token
@@ -122,7 +127,7 @@ class Throttler
 
         // If $tokens >= 1, then we are safe to perform the action, but
         // we need to decrement the number of available tokens.
-        if ($tokens >= 1) {
+        if ($tokens >= $cost) {
             $tokens -= $cost;
             $this->cache->set($tokenName, $tokens, $seconds);
             $this->cache->set($tokenName . 'Time', $this->time(), $seconds);

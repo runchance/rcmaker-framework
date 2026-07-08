@@ -10,6 +10,7 @@ class Mailer{
 	protected $PHPMailer = null;
 	protected $from = null;
 	protected $isHTML = true;
+	protected $lastError = '';
 	public function __construct($config = array()){
 		$this->config = $config;
 		$this->initMailer($config);
@@ -97,6 +98,9 @@ class Mailer{
 	public function sb($subject){
 		return $this->subject($subject);
 	}
+	public function s($subject = null){
+		return func_num_args() > 0 ? $this->subject($subject) : $this->send();
+	}
 	public function subject($subject){
 		if($this->PHPMailer){
 			$this->PHPMailer->Subject = $subject;
@@ -146,17 +150,33 @@ class Mailer{
 		return $this->getError();
 	}
 	public function getError(){
+		if($this->lastError !== ''){
+			return $this->lastError;
+		}
 		if($this->PHPMailer){
 			return $this->PHPMailer->ErrorInfo;
 		}
 		return null;
 	}
-	public function s(){
-		return $this->send();
+
+	protected function resetMailer(){
+		$this->from = null;
+		$this->isHTML = true;
+		$this->initMailer($this->config);
 	}
+
 	public function send(){
 		if($this->PHPMailer){
-			return (bool)$this->PHPMailer->send(); // 发送邮件
+			try {
+				$result = (bool)$this->PHPMailer->send();
+				$this->lastError = $this->PHPMailer->ErrorInfo ?? '';
+				return $result;
+			} catch (\Throwable $e) {
+				$this->lastError = $e->getMessage();
+				return false;
+			} finally {
+				$this->resetMailer();
+			}
 		}
 		return false;
 	}

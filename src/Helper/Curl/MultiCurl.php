@@ -452,9 +452,19 @@ class MultiCurl
      *
      * @access public
      * @param  $concurrency
+     * @throws \InvalidArgumentException
      */
     public function setConcurrency($concurrency)
     {
+        if (!is_int($concurrency) && !(is_string($concurrency) && ctype_digit($concurrency))) {
+            throw new \InvalidArgumentException('concurrency must be an integer greater than 0');
+        }
+
+        $concurrency = (int)$concurrency;
+        if ($concurrency < 1) {
+            throw new \InvalidArgumentException('concurrency must be an integer greater than 0');
+        }
+
         $this->concurrency = $concurrency;
     }
 
@@ -804,6 +814,13 @@ class MultiCurl
         } else {
             $interval = (int)$matches['2'];
         }
+
+        if ($max_requests < 1 || $interval < 1) {
+            throw new \UnexpectedValueException(
+                'rate limit must use values greater than 0 (e.g. "60/1m")'
+            );
+        }
+
         $unit = strtolower($matches['3']);
 
         // Convert interval to seconds based on unit.

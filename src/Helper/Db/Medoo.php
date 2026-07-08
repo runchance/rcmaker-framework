@@ -66,8 +66,9 @@ class Medoo implements Bootstrap{
 					}else{
 						$config_org = array_merge($config_org,$val);
 					}
-					if(array_key_exists(($map[$key] ?? null),$_config['connections'][$driver])===true){
-						$_config['connections'][$driver][$map[$key]] = $val ?? $_config['connections'][$driver][$map[$key]];
+					$mappedKey = $map[$key] ?? null;
+					if($mappedKey !== null && array_key_exists($mappedKey,$_config['connections'][$driver])===true){
+						$_config['connections'][$driver][$mappedKey] = $val ?? $_config['connections'][$driver][$mappedKey];
 					}
 				}
 

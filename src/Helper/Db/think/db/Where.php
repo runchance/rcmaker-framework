@@ -160,22 +160,22 @@ class Where implements ArrayAccess
     }
 
     // ArrayAccess
-    public function offsetSet($name, $value)
+    public function offsetSet(mixed $name, mixed $value): void
     {
         $this->__set($name, $value);
     }
 
-    public function offsetExists($name)
+    public function offsetExists(mixed $name): bool
     {
         return $this->__isset($name);
     }
 
-    public function offsetUnset($name)
+    public function offsetUnset(mixed $name): void
     {
         $this->__unset($name);
     }
 
-    public function offsetGet($name)
+    public function offsetGet(mixed $name): mixed
     {
         return $this->__get($name);
     }

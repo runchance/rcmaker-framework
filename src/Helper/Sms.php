@@ -11,7 +11,7 @@ class Sms{
 		'invalid_code'=>'验证码不正确',
 		'expired_code'=>'验证码过期'
 	);
-	protected static $cache = null;
+    protected $cache = null;
 	protected $config = [];
 
     protected $cachePrefix = 'rcsms';
@@ -39,6 +39,8 @@ class Sms{
     protected $ipCheck = true;
     //验证成功后自动删除缓存
     protected $autoDelte = true;
+    //兼容正确拼写配置
+    protected $autoDelete = true;
     // 手动传入手机号
     protected $_mobile;
     // 手动传入验证码
@@ -67,6 +69,9 @@ class Sms{
             if (property_exists($this, $key)) {
                 $this->{$key} = $val;
             }
+        }
+        if (array_key_exists('autoDelete', $config)) {
+            $this->autoDelte = (bool) $config['autoDelete'];
         }
     }
 
@@ -121,6 +126,7 @@ class Sms{
      */
     public function create(): string
     {
+        $this->code = '';
         $mobile = $this->_mobile ?? $this->request->{$this->method}($this->mobileKey);
 
         if (!$mobile) {
@@ -199,10 +205,13 @@ class Sms{
             // 缓存
         $cacheKey = $this->cachePrefix.$this->scene.$mobile;
             // 获取缓存验证码
-        $cacheCode = $this->autoDelte ? $this->cache->pull($cacheKey) : $this->cache->get($cacheKey);
+        $cacheCode = $this->cache->get($cacheKey);
         if($cacheCode){
             // 增加ip验证
             if ($cacheCode === ($this->ipCheck ? $code.ip2long($this->request->ip()) : $code)){
+                if ($this->autoDelte) {
+                    $this->cache->delete($cacheKey);
+                }
 
                 return true;
             }

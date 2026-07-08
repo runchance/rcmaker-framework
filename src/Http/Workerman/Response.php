@@ -41,6 +41,9 @@ class Response extends \Workerman\Protocols\Http\Response
     }
     public function file($file)
     {
+        if (!is_file($file)) {
+            return $this->withStatus(404)->withBody('404 Not Found');
+        }
         if($this->response){
             $this->response->findStaticFile = true;
             $this->response->staticFile = $file;
@@ -58,12 +61,16 @@ class Response extends \Workerman\Protocols\Http\Response
      */
     public function download($file, $download_name = '')
     {
+        if (!is_file($file)) {
+            return $this->withStatus(404)->withBody('404 Not Found');
+        }
         if($this->response){
            $this->response->findStaticFile = true;
             $this->response->staticFile = $file; 
         }
         $this->withFile($file);
         if ($download_name) {
+            $download_name = str_replace(["\r", "\n", '"'], '', basename($download_name));
             $this->header('Content-Disposition', "attachment; filename=\"$download_name\"");
         }
         return $this;
@@ -76,7 +83,7 @@ class Response extends \Workerman\Protocols\Http\Response
     protected function notModifiedSince($file)
     {
         $if_modified_since = $this->request ? $this->request->header('if-modified-since') : null;
-        if ($if_modified_since === null) {
+        if (!$if_modified_since || !is_file($file)) {
             return false;
         }
         if(!($mtime = \filemtime($file))){

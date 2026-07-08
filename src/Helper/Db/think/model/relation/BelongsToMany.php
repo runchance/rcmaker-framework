@@ -152,7 +152,7 @@ class BelongsToMany extends Relation
      * @param  Closure  $closure     闭包查询条件
      * @return Collection
      */
-    public function getRelation(array $subRelation = [], Closure $closure = null): Collection
+    public function getRelation(array $subRelation = [], ?Closure $closure = null): Collection
     {
         if ($closure) {
             $closure($this->getClosureType($closure));
@@ -226,7 +226,7 @@ class BelongsToMany extends Relation
      * @param  Query   $query    Query对象
      * @return Model
      */
-    public function has(string $operator = '>=', $count = 1, $id = '*', string $joinType = 'INNER', Query $query = null)
+    public function has(string $operator = '>=', $count = 1, $id = '*', string $joinType = 'INNER', ?Query $query = null)
     {
         return $this->parent;
     }
@@ -241,7 +241,7 @@ class BelongsToMany extends Relation
      * @return Query
      * @throws Exception
      */
-    public function hasWhere($where = [], $fields = null, string $joinType = '', Query $query = null)
+    public function hasWhere($where = [], $fields = null, string $joinType = '', ?Query $query = null)
     {
         throw new Exception('relation not support: hasWhere');
     }
@@ -270,7 +270,7 @@ class BelongsToMany extends Relation
      * @param  array   $cache       关联缓存
      * @return void
      */
-    public function eagerlyResultSet(array &$resultSet, string $relation, array $subRelation, Closure $closure = null, array $cache = []): void
+    public function eagerlyResultSet(array &$resultSet, string $relation, array $subRelation, ?Closure $closure = null, array $cache = []): void
     {
         $localKey = $this->localKey;
         $pk       = $resultSet[0]->getPk();
@@ -310,7 +310,7 @@ class BelongsToMany extends Relation
      * @param  array   $cache       关联缓存
      * @return void
      */
-    public function eagerlyResult(Model $result, string $relation, array $subRelation, Closure $closure = null, array $cache = []): void
+    public function eagerlyResult(Model $result, string $relation, array $subRelation, ?Closure $closure = null, array $cache = []): void
     {
         $pk = $result->getPk();
 
@@ -340,7 +340,7 @@ class BelongsToMany extends Relation
      * @param  string  $name 统计字段别名
      * @return integer
      */
-    public function relationCount(Model $result, Closure $closure = null, string $aggregate = 'count', string $field = '*', string &$name = null): float
+    public function relationCount(Model $result, ?Closure $closure = null, string $aggregate = 'count', string $field = '*', ?string &$name = null): float
     {
         $pk = $result->getPk();
 
@@ -368,7 +368,7 @@ class BelongsToMany extends Relation
      * @param  string  $name 统计字段别名
      * @return string
      */
-    public function getRelationCountQuery(Closure $closure = null, string $aggregate = 'count', string $field = '*', string &$name = null): string
+    public function getRelationCountQuery(?Closure $closure = null, string $aggregate = 'count', string $field = '*', ?string &$name = null): string
     {
         if ($closure) {
             $closure($this->getClosureType($closure), $name);
@@ -390,7 +390,7 @@ class BelongsToMany extends Relation
      * @param  array   $cache       关联缓存
      * @return array
      */
-    protected function eagerlyManyToMany(array $where, array $subRelation = [], Closure $closure = null, array $cache = []): array
+    protected function eagerlyManyToMany(array $where, array $subRelation = [], ?Closure $closure = null, array $cache = []): array
     {
         if ($closure) {
             $closure($this->getClosureType($closure));

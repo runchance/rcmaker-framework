@@ -9,9 +9,8 @@ class Pdf{
 
 	public function get_Instance(){
 		$class = FRAME_PATH . '/Helper/Tcpdf/tcpdf.php';
-		$class_name = 'TCPDF';
 		if(!Container::loadClass($class,'TCPDF')){
-            throw new \Exception("Class '$smartyclass' not found");
+	            throw new \Exception("Class 'TCPDF' not found");
         }
 		return Container::make('TCPDF',$this->config);
 	}

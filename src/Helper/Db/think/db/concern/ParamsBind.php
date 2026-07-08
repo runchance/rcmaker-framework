@@ -45,7 +45,7 @@ trait ParamsBind
      * @param string  $name  绑定标识
      * @return string
      */
-    public function bindValue($value, int $type = null, string $name = null)
+    public function bindValue($value, ?int $type = null, ?string $name = null)
     {
         $name = $name ?: 'ThinkBind_' . (count($this->bind) + 1) . '_' . mt_rand() . '_';
         $this->bind[$name] = [$value, $type ?: PDO::PARAM_STR];

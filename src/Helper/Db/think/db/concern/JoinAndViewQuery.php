@@ -30,7 +30,7 @@ trait JoinAndViewQuery
      * @param array  $bind      参数绑定
      * @return $this
      */
-    public function join($join, string $condition = null, string $type = 'INNER', array $bind = [])
+    public function join($join, ?string $condition = null, string $type = 'INNER', array $bind = [])
     {
         $table = $this->getJoinTable($join);
 
@@ -51,7 +51,7 @@ trait JoinAndViewQuery
      * @param array $bind      参数绑定
      * @return $this
      */
-    public function leftJoin($join, string $condition = null, array $bind = [])
+    public function leftJoin($join, ?string $condition = null, array $bind = [])
     {
         return $this->join($join, $condition, 'LEFT', $bind);
     }
@@ -64,7 +64,7 @@ trait JoinAndViewQuery
      * @param array $bind      参数绑定
      * @return $this
      */
-    public function rightJoin($join, string $condition = null, array $bind = [])
+    public function rightJoin($join, ?string $condition = null, array $bind = [])
     {
         return $this->join($join, $condition, 'RIGHT', $bind);
     }
@@ -77,7 +77,7 @@ trait JoinAndViewQuery
      * @param array $bind      参数绑定
      * @return $this
      */
-    public function fullJoin($join, string $condition = null, array $bind = [])
+    public function fullJoin($join, ?string $condition = null, array $bind = [])
     {
         return $this->join($join, $condition, 'FULL');
     }

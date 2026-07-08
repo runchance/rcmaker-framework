@@ -100,16 +100,17 @@ class FileMonitor
             }
             // check mtime
             $ext = $file->getExtension();
+            $filePathName = $file->getPathname();
             if ($last_mtime < $file->getMTime() && (in_array($ext, $this->_extensions) || $file->getBasename()==='.env')) {
                 $var = 0;
                 if($ext=='php'){
-                    exec(PHP_BINDIR . "/php -l " . $file, $out, $var);
+                    $phpBinary = (defined('PHP_BINARY') && PHP_BINARY) ? PHP_BINARY : PHP_BINDIR . DIRECTORY_SEPARATOR . 'php';
+                    exec(escapeshellarg($phpBinary) . ' -l ' . escapeshellarg($filePathName), $out, $var);
                     if ($var) {
                         $last_mtime = $file->getMTime();
                         continue;
                     }
                 }
-                $filePathName = $file->getPathname();
                 echo $file . " update and reload\n";
                 // send SIGUSR1 signal to master process for reload
                 posix_kill(posix_getppid(), \SIGUSR1);

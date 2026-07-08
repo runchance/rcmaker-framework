@@ -55,6 +55,7 @@ class AutoForm{
 	protected $_setData = []; //人工设置的数据
 	protected $tabledata = []; //数据库读出数据
 	protected $where = [];
+	protected $whereExp = [];
 	protected $fields = '*';
 	protected $request = null;
 	public function __construct($request,$vars = array()){ //初始化参数
@@ -88,7 +89,7 @@ class AutoForm{
 				throw new \Exception((string)static::$msg['method_error'] ?? null);
 			}
 			if(is_array($rules)){
-				$this->_data[$key] = isset($this->transferData[$key]) ? $this->transferData[$transferkey] : $this->request->{$method}($transferkey);
+				$this->_data[$key] = array_key_exists($transferkey, $this->transferData) ? $this->transferData[$transferkey] : $this->request->{$method}($transferkey);
 				
 				$this->rule[$key] = $rules;
 				if($this->type=='list' || $this->type=='paginate'){
@@ -113,10 +114,12 @@ class AutoForm{
 
 	public function where(...$where){
 		$this->where = array_merge($this->where,$where);
+		return $this;
 	}
 
 	public function whereExp(...$whereExp){
 		$this->whereExp = array_merge($this->whereExp,$whereExp);
+		return $this;
 
 	}
 
@@ -131,6 +134,64 @@ class AutoForm{
 
 	public function after($handle = null){
 		$this->after = $handle;
+	}
+
+	public function getToggle(){
+		return $this->toggle;
+	}
+
+	protected function hasIndexScope(): bool{
+		return $this->index !== '' && $this->id !== null && $this->id !== '';
+	}
+
+	protected function resolveScope(): array{
+		$where = $this->where ?: null;
+		$whereExp = $this->whereExp ?: null;
+		if(!$where && !$whereExp && $this->hasIndexScope()){
+			if(is_array($this->id)){
+				$whereExp = ['wi',$this->index,$this->id];
+			}else{
+				$where = [$this->index,'=',$this->id];
+			}
+		}
+		return [$where,$whereExp];
+	}
+
+	protected function applyScope($base, $where = null, $whereExp = null){
+		if($where){
+			if(isset($where[0]) && is_array($where[0])){
+				foreach($where as $w){
+					$base->where(... array_values($w));
+				}
+			}else{
+				$base->where(... array_values($where));
+			}
+		}
+		if($whereExp){
+			if(isset($whereExp[0]) && is_array($whereExp[0])){
+				foreach($whereExp as $w){
+					$base->whereExp(... array_values($w));
+				}
+			}else{
+				$base->whereExp(... array_values($whereExp));
+			}
+		}
+		return $base;
+	}
+
+	protected function loadToggleData($where = null, $whereExp = null){
+		if(!$where && !$whereExp){
+			throw new \Exception((string)static::$msg['range_failed'] ?? null);
+		}
+		$base = $this->applyScope($this->db->table($this->table), $where, $whereExp)->lock($this->trans ? true : false);
+		$tabledata = $base->select($this->fields);
+		if($tabledata !== null && !is_array($tabledata)){
+			$tabledata = $tabledata->toArray();
+		}
+		if(!$tabledata){
+			throw new \Exception('['.$this->name.']'.(static::$msg['is_not_exist'] ?? null));
+		}
+		return $tabledata;
 	}
 
 	public function handle($callback = null){
@@ -160,173 +221,144 @@ class AutoForm{
 			$this->db->startTrans();
 		}
 
-		if(is_callable($this->before)){
-			$handle = $this->before;
-			$handle();
-		}
-
-		if($this->id && $this->index){
-			$check = [$this->index,'exist',null,$this->id];
-			$this->check($check);
-		}
-
-		if($this->check){
-			$this->check(...$this->check);
-		}
-
-		switch($this->type){
-			case 'list': case 'paginate';
-				$queryKeys = [];
-				foreach(($this->query ?? []) as $query){
-					$queryKey = $query[0] ?? null;
-					$queryWhere = $query[1] ?? null;
-					$tableKey = $query[2] ?? $queryKey;
-					$queryFun = $query[3] ?? null;
-					$data = $this->_data[$queryKey] ?? null;
-					if(isset($data) && $queryFun && is_callable($queryFun)){
-						$data = $queryFun($data);
-					}
-					if(isset($data)){
-						$queryKeys[$queryKey] = true;
-						if($queryWhere){
-							$findQuery = true;
-							switch($queryWhere){
-								case '=':case 'eq':
-									$this->where([$tableKey,'=',$data]);
-								break;
-								case '>':case '>=':case '<':case '<=':
-									$this->where([$tableKey,$query[1],$data]);
-								break;
-								case 'like':
-									$this->where([$tableKey,'like',"%$data%"]);
-								break;
-								case 'like%':
-									$this->where([$tableKey,'like',"$data%"]);
-								break;
-								case '%like':
-									$this->where([$tableKey,'like',"%$data"]);
-								break;
-								case 'in':
-									$this->whereExp(['wi',$tableKey,$data]);
-								break;
-							}	
-						}
-					}
-				}
-
-				foreach($this->_data as $key=>$data){
-					if(!isset($queryKeys[$key])){
-						$this->where([$key,'=',$data]);
-					}
-				}
-
-				$this->getList($this->type=='paginate');
-				return $this->getTableData();
-			break;
-			case 'get':
-
-				if(isset($this->where) || isset($this->whereExp)){
-					$this->getData();
-				}
-				return $this->getTableData();
-			break;
-			case 'delete':
-				$deletor = ['table'=>$this->table];
-				if($this->index && $this->id){
-					if(is_array($this->id)){
-						$deletor['whereExp'] = ['wi',$this->index,$this->id];
-					}else{
-						$deletor['where'] = [$this->index,'=',$this->id];
-					}
-				}
-				if($this->where){
-					$deletor['where'] = $this->where;
-				}
-				if($this->whereExp){
-					$deletor['whereExp'] = $this->whereExp;
-				}
-				$this->delete($deletor);
-			break;
-			case 'add':
-				$this->add(['table'=>$this->table,'data'=>$this->_data]);
-				$this->id = $this->db->id();
-			break;
-			case 'update':
-				$updator = ['table'=>$this->table,'data'=>$this->_data];
-				if($this->index && $this->id){
-					if(is_array($this->id)){
-						$updator['whereExp'] = ['wi',$this->index,$this->id];
-					}else{
-						$updator['where'] = [$this->index,'=',$this->id];
-					}
-				}
-				if($this->where){
-					$updator['where'] = $this->where;
-				}
-				if($this->whereExp){
-					$updator['whereExp'] = $this->whereExp;
-				}
-				
-				$this->update($updator);
-			break;
-			case 'toggle':
-				$tableData = $this->tabledata;
-				$updator = [];
-				$where = $whereExp = null;
-				if($this->index && $this->id){
-					if(is_array($this->id)){
-						$whereExp = ['wi',$this->index,$this->id];
-					}else{
-						$where = [$this->index,'=',$this->id];
-					}
-				}
-				if($this->where){
-					$where = $this->where;
-				}
-				if($this->whereExp){
-					$whereExp = $this->whereExp;
-				}
-				foreach($this->_data as $key=>$val){
-					if(isset($tableData[0]) && is_array($tableData[0])){
-						$whereExp = null;
-						foreach($tableData as $k=>$data){
-							$toggle = (int)$tableData[$k][$key]==0 ? 1 : 0;
-							if($this->index && isset($tableData[$k][$this->index])){
-								$where = [$this->index,'=',$tableData[$k][$this->index]];
-								$this->toggle[$tableData[$k][$this->index]][$key] = $toggle;
-							}else{
-								throw new \Exception((string)static::$msg['index_is_null'] ?? null);
-							}
-							$updator[] = ['where'=>$where,'whereExp'=>$whereExp,'table'=>$this->table,'data'=>[$key=>$toggle]];
-						}
-					}else{
-						if(isset($tableData[$key])){
-							$toggle = (int)$tableData[$key]==0 ? 1 : 0;
-							$this->toggle[$key] = $toggle;
-							$updator[] = ['where'=>$where,'whereExp'=>$whereExp,'table'=>$this->table,'data'=>[$key=>$toggle]];
-						}
-						
-					}
-				}
-				$this->update(... array_values($updator));
-
-				
-			break;
-		}
-		if(is_callable($callback)){
-			$callable = $callback($this->id);
-		}else{
-			if(is_callable($this->after)){
-				$handle = $this->after;
-				$handle($this->id);
+		try{
+			if(is_callable($this->before)){
+				$handle = $this->before;
+				$handle();
 			}
-		}
 
-		return true;
+			if($this->hasIndexScope()){
+				$check = [$this->index,'exist',null,$this->id];
+				$this->check($check);
+			}
+
+			if($this->check){
+				$this->check(...$this->check);
+			}
+
+			switch($this->type){
+				case 'list': case 'paginate':
+					$queryKeys = [];
+					foreach(($this->query ?? []) as $query){
+						$queryKey = $query[0] ?? null;
+						$queryWhere = $query[1] ?? null;
+						$tableKey = $query[2] ?? $queryKey;
+						$queryFun = $query[3] ?? null;
+						$data = $this->_data[$queryKey] ?? null;
+						if(isset($data) && $queryFun && is_callable($queryFun)){
+							$data = $queryFun($data);
+						}
+						if(isset($data)){
+							$queryKeys[$queryKey] = true;
+							if($queryWhere){
+								switch($queryWhere){
+									case '=':case 'eq':
+										$this->where([$tableKey,'=',$data]);
+									break;
+									case '>':case '>=':case '<':case '<=':
+										$this->where([$tableKey,$query[1],$data]);
+									break;
+									case 'like':
+										$this->where([$tableKey,'like',"%$data%"]);
+									break;
+									case 'like%':
+										$this->where([$tableKey,'like',"$data%"]);
+									break;
+									case '%like':
+										$this->where([$tableKey,'like',"%$data"]);
+									break;
+									case 'in':
+										$this->whereExp(['wi',$tableKey,$data]);
+									break;
+								}	
+							}
+						}
+					}
+
+					foreach($this->_data as $key=>$data){
+						if(!isset($queryKeys[$key])){
+							$this->where([$key,'=',$data]);
+						}
+					}
+
+					$this->getList($this->type=='paginate');
+					return $this->getTableData();
+				break;
+				case 'get':
+					[$where, $whereExp] = $this->resolveScope();
+					$this->getData($where, $whereExp);
+					return $this->getTableData();
+				break;
+				case 'delete':
+					[$where, $whereExp] = $this->resolveScope();
+					$this->delete(['table'=>$this->table,'where'=>$where,'whereExp'=>$whereExp]);
+				break;
+				case 'add':
+					$this->add(['table'=>$this->table,'data'=>$this->_data]);
+					$this->id = $this->db->id();
+				break;
+				case 'update':
+					[$where, $whereExp] = $this->resolveScope();
+					$this->update(['table'=>$this->table,'data'=>$this->_data,'where'=>$where,'whereExp'=>$whereExp]);
+				break;
+				case 'toggle':
+					[$where, $whereExp] = $this->resolveScope();
+					$tableData = $this->tabledata;
+					if(!$tableData){
+						$tableData = $this->loadToggleData($where, $whereExp);
+						$this->tabledata = $tableData;
+					}
+					$updator = [];
+					foreach($this->_data as $key=>$val){
+						if(isset($tableData[0]) && is_array($tableData[0])){
+							foreach($tableData as $k=>$data){
+								$toggle = (int)$tableData[$k][$key]==0 ? 1 : 0;
+								if($this->index && isset($tableData[$k][$this->index])){
+									$rowWhere = [$this->index,'=',$tableData[$k][$this->index]];
+									$this->toggle[$tableData[$k][$this->index]][$key] = $toggle;
+								}else{
+									throw new \Exception((string)static::$msg['index_is_null'] ?? null);
+								}
+								$updator[] = ['where'=>$rowWhere,'whereExp'=>null,'table'=>$this->table,'data'=>[$key=>$toggle]];
+							}
+						}else{
+							if(isset($tableData[$key])){
+								$toggle = (int)$tableData[$key]==0 ? 1 : 0;
+								$this->toggle[$key] = $toggle;
+								$updator[] = ['where'=>$where,'whereExp'=>$whereExp,'table'=>$this->table,'data'=>[$key=>$toggle]];
+							}
+						}
+					}
+					$this->update(... array_values($updator));
+				break;
+			}
+			if(is_callable($callback)){
+				$callback($this->id);
+			}else{
+				if(is_callable($this->after)){
+					$handle = $this->after;
+					$handle($this->id);
+				}
+			}
+
+			return true;
+		}catch(\Throwable $ex){
+			if($this->trans){
+				try{
+					$this->db->rollback();
+				}catch(\Throwable $rollbackEx){}
+			}
+			throw $ex;
+		}
 	}
 
 	public function commit(){
 		$this->db->commit();
+		return true;
+	}
+
+	public function rollback(){
+		$this->db->rollback();
 		return true;
 	}
 
@@ -366,31 +398,13 @@ class AutoForm{
 		return true;
 	}
 
-	public function getData(){
+	public function getData($where = null, $whereExp = null){
 		$table = $this->table ?? null;
-		$where = $this->where ?? null;
-		$whereExp = $this->whereExp ?? null;
+		$where = func_num_args() >= 1 ? $where : ($this->where ?? null);
+		$whereExp = func_num_args() >= 2 ? $whereExp : ($this->whereExp ?? null);
 		$base = $this->db->table($table);
 		if($where || $whereExp){
-			if($where){
-				if(isset($where[0]) && is_array($where[0])){
-					foreach($where as $w){
-						$base->where(... array_values($w));
-					}
-				}else{
-					$base->where(... array_values($where));
-				}
-			}
-			if($whereExp){
-				if(isset($whereExp[0]) && is_array($whereExp[0])){
-					foreach($whereExp as $w){
-						$base->whereExp(... array_values($w));
-					}
-				}else{
-					$base->whereExp(... array_values($whereExp));
-				}
-			}
-			$this->tabledata = $base->find($this->fields);
+			$this->tabledata = $this->applyScope($base, $where, $whereExp)->find($this->fields);
 			
 		}else{
 			$this->tabledata = $base->find($this->fields);
@@ -516,8 +530,8 @@ class AutoForm{
 				throw new \Exception((string)static::$msg['check_config_error'] ?? null);
 			}
 			$key = $checkor[0];
-			$method = $this->data[$key]['method'] ?? $this->method;
-			$name = $this->data[$key]['name'] ?? $key;
+			$dataRule = $this->data[$key] ?? [];
+			$name = $dataRule['name'] ?? $key;
 			$check = $checkor[1];
 
 			$options = $checkor[2] ?? null;

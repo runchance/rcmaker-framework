@@ -47,13 +47,18 @@ class ThinkPHP implements View
         if(!$view){
            $view =  new Template($options);
         }
-        \ob_start();
-
         $vars = \array_merge(static::$_vars, $vars);
-        $view->fetch($template, $vars);
-        $content = \ob_get_clean();
-        static::$_vars = [];
-        return $content;
+        $level = \ob_get_level();
+        try {
+            \ob_start();
+            $view->fetch($template, $vars);
+            return \ob_get_clean();
+        } finally {
+            static::$_vars = [];
+            while(\ob_get_level() > $level){
+                \ob_end_clean();
+            }
+        }
     }
 
 }

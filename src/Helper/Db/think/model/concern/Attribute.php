@@ -256,7 +256,7 @@ trait Attribute
      * @param  string $name 字段名 留空获取全部
      * @return mixed
      */
-    public function getOrigin(string $name = null)
+    public function getOrigin(?string $name = null)
     {
         if (is_null($name)) {
             return $this->origin;
@@ -274,7 +274,7 @@ trait Attribute
      * @return mixed
      * @throws InvalidArgumentException
      */
-    public function getData(string $name = null)
+    public function getData(?string $name = null)
     {
         if (is_null($name)) {
             return $this->data;
@@ -633,7 +633,7 @@ trait Attribute
      * @param  callable     $callback   闭包获取器
      * @return $this
      */
-    public function withAttribute($name, callable $callback = null)
+    public function withAttribute($name, ?callable $callback = null)
     {
         if (is_array($name)) {
             foreach ($name as $key => $val) {

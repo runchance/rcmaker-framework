@@ -49,7 +49,7 @@ class Laravel implements Bootstrap{
     public static function start()
     {
     	if (!class_exists('\Illuminate\Database\Capsule\Manager')) {
-            return;
+	            throw new \RuntimeException('RC\\Helper\\Db\\Laravel requires illuminate/database.');
         }
     	static::$_config = static::$_config ?? static::creat_config(Config::get('db') ?? []);
     	if(!static::$_config){

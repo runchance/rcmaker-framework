@@ -73,7 +73,7 @@ abstract class BaseQuery
      * @access public
      * @param ConnectionInterface $connection 数据库连接对象
      */
-    public function __construct(ConnectionInterface $connection = null)
+    public function __construct(?ConnectionInterface $connection = null)
     {
         $this->connection = $connection;
 
@@ -245,7 +245,7 @@ abstract class BaseQuery
      * @param string $sequence 自增序列名
      * @return mixed
      */
-    public function getLastInsID(string $sequence = null)
+    public function getLastInsID(?string $sequence = null)
     {
         return $this->connection->getLastInsID($this, $sequence);
     }
@@ -455,7 +455,7 @@ abstract class BaseQuery
      * @param int $length 查询数量
      * @return $this
      */
-    public function limit(int $offset, int $length = null)
+    public function limit(int $offset, ?int $length = null)
     {
         $this->options['limit'] = $offset . ($length ? ',' . $length : '');
 
@@ -469,7 +469,7 @@ abstract class BaseQuery
      * @param int $listRows 每页数量
      * @return $this
      */
-    public function page(int $page, int $listRows = null)
+    public function page(int $page, ?int $listRows = null)
     {
         $this->options['page'] = [$page, $listRows];
 
@@ -643,7 +643,7 @@ abstract class BaseQuery
      * @return Paginator
      * @throws Exception
      */
-    public function paginateX($listRows = null, string $key = null, string $sort = null): Paginator
+    public function paginateX($listRows = null, ?string $key = null, ?string $sort = null): Paginator
     {
         $defaultConfig = [
             'query'     => [], //url额外参数
@@ -714,7 +714,7 @@ abstract class BaseQuery
      * @return array
      * @throws Exception
      */
-    public function more(int $limit, $lastId = null, string $key = null, string $sort = null): array
+    public function more(int $limit, $lastId = null, ?string $key = null, ?string $sort = null): array
     {
         $key = $key ?: $this->getPk();
 
@@ -834,7 +834,7 @@ abstract class BaseQuery
      * @param string $sequence 自增序列名
      * @return $this
      */
-    public function sequence(string $sequence = null)
+    public function sequence(?string $sequence = null)
     {
         $this->options['sequence'] = $sequence;
         return $this;

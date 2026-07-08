@@ -12,9 +12,11 @@ declare (strict_types = 1);
 
 namespace RC\Helper\Cache\think\cache;
 
+use Closure;
 use DateInterval;
 use DateTime;
 use DateTimeInterface;
+use Throwable;
 use RC\Helper\Cache\think\cache\exception\InvalidArgumentException;
 use RC\Helper\Cache\think\Container;
 
@@ -91,12 +93,14 @@ abstract class Driver
      */
     public function pull(string $name)
     {
-        $result = $this->get($name, false);
-
-        if ($result) {
-            $this->delete($name);
-            return $result;
+        if (!$this->has($name)) {
+            return null;
         }
+
+        $result = $this->get($name);
+        $this->delete($name);
+
+        return $result;
     }
 
     /**
@@ -172,7 +176,7 @@ abstract class Driver
 
             // 解锁
             $this->delete($name . '_lock');
-        } catch (Exception | throwable $e) {
+        } catch (Throwable $e) {
             $this->delete($name . '_lock');
             throw $e;
         }

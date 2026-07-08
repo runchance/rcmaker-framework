@@ -51,6 +51,7 @@ class Curl
     public $jsonDecoder = null;
     public $xmlDecoder = null;
 
+    private $headerCallbackData = null;
     private $cookies = [];
     private $headers = [];
     private $options = [];
@@ -212,9 +213,6 @@ class Curl
      */
     public function close()
     {
-        if (is_resource($this->curl) || $this->curl instanceof \CurlHandle) {
-            curl_close($this->curl);
-        }
         $this->curl = null;
         $this->options = null;
         $this->jsonDecoder = null;

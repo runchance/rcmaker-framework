@@ -15,6 +15,9 @@ class Raw implements Bootstrap{
 		'timeout'=>5,
 		'retryInterval'=>0,
 		'readTimeout'=>-1,
+		'persistent'=>false,
+		'select'=>'x',
+		'prefix'=>'',
 	];
 
 	private static function creat_config($config){

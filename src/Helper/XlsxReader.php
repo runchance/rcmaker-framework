@@ -36,7 +36,7 @@ class XlsxReader
      *
      * @param string|null $file
      */
-    public function __construct(string $file = null)
+    public function __construct(?string $file = null)
     {
         if ($file) {
             $this->_prepare($file);
@@ -91,7 +91,7 @@ class XlsxReader
     /**
      * @param string|null $innerFile
      */
-    protected function _loadSheets(string $innerFile = null)
+    protected function _loadSheets(?string $innerFile = null)
     {
         if (!$innerFile) {
             $innerFile = 'xl/workbook.xml';
@@ -121,7 +121,7 @@ class XlsxReader
     /**
      * @param string|null $innerFile
      */
-    protected function _loadSharedStrings(string $innerFile = null)
+    protected function _loadSharedStrings(?string $innerFile = null)
     {
         if (!$innerFile) {
             $innerFile = 'xl/sharedStrings.xml';
@@ -138,7 +138,7 @@ class XlsxReader
     /**
      * @param string|null $innerFile
      */
-    protected function _loadStyles(string $innerFile = null)
+    protected function _loadStyles(?string $innerFile = null)
     {
         if (!$innerFile) {
             $innerFile = 'xl/styles.xml';
@@ -333,7 +333,7 @@ class XlsxReader
      *
      * @return $this
      */
-    public function selectSheet(string $name, string $areaRange = null, ?bool $firstRowKeys = false)
+    public function selectSheet(string $name, ?string $areaRange = null, ?bool $firstRowKeys = false)
     {
         foreach ($this->sheets as $sheetId => $sheet) {
             if (strcasecmp($sheet['name'], $name) === 0) {
@@ -357,7 +357,7 @@ class XlsxReader
      *
      * @return $this
      */
-    public function selectSheetById(int $sheetId, string $areaRange = null)
+    public function selectSheetById(int $sheetId, ?string $areaRange = null)
     {
         if (!isset($this->sheets[$sheetId])) {
             throw new Exception('Sheet ID "' . $sheetId . '" not found');
@@ -448,7 +448,7 @@ class XlsxReader
      *
      * @return array
      */
-    public function readSheetCallback(callable $callback, $sheetId = null, int $indexStyle = null): array
+    public function readSheetCallback(callable $callback, ?int $sheetId = null, ?int $indexStyle = null): array
     {
         if (null === $sheetId) {
             $sheetId = $this->defaultSheet;
@@ -533,7 +533,7 @@ class XlsxReader
      *
      * @return array
      */
-    public function readSheetRows(int $sheetId = null, array $columnKeys = [], bool $firstRowKeys = null, int $indexStyle = null): array
+    public function readSheetRows(?int $sheetId = null, array $columnKeys = [], ?bool $firstRowKeys = null, ?int $indexStyle = null): array
     {
         $data = [];
         if ($firstRowKeys === null) {
@@ -592,7 +592,7 @@ class XlsxReader
      *
      * @return array
      */
-    public function readSheetCells($sheetId = null)
+    public function readSheetCells(?int $sheetId = null)
     {
         $data = [];
         $this->readSheetCallback(static function($row, $col, $val) use (&$data) {
@@ -614,7 +614,7 @@ class XlsxReader
      *
      * @return array
      */
-    public function readRows($columnKeys = null, int $indexStyle = null): array
+    public function readRows($columnKeys = null, ?int $indexStyle = null): array
     {
         if (!is_array($columnKeys)) {
             if (is_int($columnKeys) && $columnKeys > 1 && $indexStyle === null) {
@@ -643,7 +643,7 @@ class XlsxReader
      *
      * @return array
      */
-    public function readColumns($columnKeys = null, int $indexStyle = null): array
+    public function readColumns($columnKeys = null, ?int $indexStyle = null): array
     {
         if (is_int($columnKeys) && $columnKeys > 1 && $indexStyle === null) {
             $indexStyle = $columnKeys | XlsxReader::KEYS_RELATIVE;
@@ -713,6 +713,7 @@ class Reader extends \XMLReader
     /**
      * @return bool
      */
+    #[\ReturnTypeWillChange]
     public function close()
     {
         if ($this->innerFile) {

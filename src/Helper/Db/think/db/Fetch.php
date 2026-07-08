@@ -194,7 +194,7 @@ class Fetch
      * @param  integer   $limit   每次写入数据限制
      * @return string
      */
-    public function insertAll(array $dataSet = [], int $limit = null): string
+    public function insertAll(array $dataSet = [], ?int $limit = null): string
     {
         $options = $this->query->parseOptions();
 

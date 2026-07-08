@@ -75,7 +75,7 @@ class MorphToMany extends BelongsToMany
      * @param  array   $cache       关联缓存
      * @return void
      */
-    public function eagerlyResultSet(array &$resultSet, string $relation, array $subRelation, Closure $closure = null, array $cache = []): void
+    public function eagerlyResultSet(array &$resultSet, string $relation, array $subRelation, ?Closure $closure = null, array $cache = []): void
     {
         $pk    = $resultSet[0]->getPk();
         $range = [];
@@ -115,7 +115,7 @@ class MorphToMany extends BelongsToMany
      * @param  array   $cache       关联缓存
      * @return void
      */
-    public function eagerlyResult(Model $result, string $relation, array $subRelation, Closure $closure = null, array $cache = []): void
+    public function eagerlyResult(Model $result, string $relation, array $subRelation, ?Closure $closure = null, array $cache = []): void
     {
         $pk = $result->getPk();
 
@@ -146,7 +146,7 @@ class MorphToMany extends BelongsToMany
      * @param  string  $name 统计字段别名
      * @return integer
      */
-    public function relationCount(Model $result, Closure $closure = null, string $aggregate = 'count', string $field = '*', string &$name = null): float
+    public function relationCount(Model $result, ?Closure $closure = null, string $aggregate = 'count', string $field = '*', ?string &$name = null): float
     {
         $pk = $result->getPk();
 
@@ -175,7 +175,7 @@ class MorphToMany extends BelongsToMany
      * @param  string  $name 统计字段别名
      * @return string
      */
-    public function getRelationCountQuery(Closure $closure = null, string $aggregate = 'count', string $field = '*', string &$name = null): string
+    public function getRelationCountQuery(?Closure $closure = null, string $aggregate = 'count', string $field = '*', ?string &$name = null): string
     {
         if ($closure) {
             $closure($this->getClosureType($closure), $name);
@@ -233,7 +233,7 @@ class MorphToMany extends BelongsToMany
      * @param  array   $cache       关联缓存
      * @return array
      */
-    protected function eagerlyManyToMany(array $where, array $subRelation = [], Closure $closure = null, array $cache = []): array
+    protected function eagerlyManyToMany(array $where, array $subRelation = [], ?Closure $closure = null, array $cache = []): array
     {
         if ($closure) {
             $closure($this->getClosureType($closure));

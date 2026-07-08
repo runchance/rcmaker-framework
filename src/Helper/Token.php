@@ -55,7 +55,7 @@ class Token{
 
     private static function readFile($filename){
     	static $file;
-    	$file[$filename] = $file[$filename] ?? file::read($filename);
+        $file[$filename] = $file[$filename] ?? self::read($filename);
     	return $file[$filename];
     }
 
@@ -97,7 +97,7 @@ class Token{
 
     public function refreshToken(): array
     {
-        $token = $this->getClientToken();
+        $token = $this->getClientToken(self::REFRESH_TOKEN);
         $config = $this->config;
         try {
             $data = $this->verifyToken($token, self::REFRESH_TOKEN);
@@ -109,39 +109,48 @@ class Token{
             throw new AuthException(static::$msg['refresh_token_expired'] ?? 'Refreshed token is expired');
         } catch (UnexpectedValueException $unexpectedValueException) {
             throw new AuthException(static::$msg['refresh_token_format_error'] ?? 'Refreshed token format error');
-        } catch (JwtCacheTokenException | \Exception $exception) {
+        } catch (\Exception $exception) {
             throw new AuthException($exception->getMessage());
         }
         $payload = $this->generatePayload($config, $data['data']);
         $secretKey = $this->getPrivateKey();
         $data['exp'] = time() + $config['access_expired'];
-        $newToken['access_token'] = $this->makeToken($data, $secretKey, $config['signer']);
+        $newToken = [
+            'guard' => $this->guard,
+            'token_type' => $this->config['type'],
+            'expires_in' => $config['access_expired'],
+            'access_token' => $this->makeToken($data, $secretKey, $config['signer'])
+        ];
         if (!isset($config['refresh_disable']) || (isset($config['refresh_disable']) && $config['refresh_disable'] === false)) {
             $refreshSecretKey = $this->getPrivateKey(self::REFRESH_TOKEN);
-            $payload['exp'] = time() + $config['refresh_expired'];
             $newToken['refresh_token'] = $this->makeToken($payload['refreshPayload'], $refreshSecretKey, $config['signer']);
         }
         $this->setClient($newToken['access_token']);
+        if (isset($newToken['refresh_token'])) {
+            $this->setClient($newToken['refresh_token'], self::REFRESH_TOKEN);
+        }
         return $newToken;
     }
 
-    private function setClient($token){
+    private function setClient($token, int $tokenType = self::ACCESS_TOKEN){
+        $keyName = $this->getClientKeyName($tokenType);
         switch(strtolower($this->config['type'])){
             case 'cookie':
-                $this->request->setcookies([$this->config['keyName']=>$token]);
+                $this->request->setcookies([$keyName => $token]);
             break;
             case 'session':
                 $session = $this->request->session();
-                $session->set($this->config['keyName'],$token);
+                $session->set($keyName,$token);
             break;
         }
         return true;
     }
 
-    private function getClientToken(): string
+    private function getClientToken(int $tokenType = self::ACCESS_TOKEN): string
     {
         $withoutMsg = static::$msg['request_without_info'] ?? 'request without information';
         $illegalMsg = static::$msg['illegal_info'] ?? 'illegal information';
+        $keyName = $this->getClientKeyName($tokenType);
         switch(strtolower($this->config['type'])){
             case 'bearer':
                 $authorization = $this->request->header('authorization');
@@ -166,38 +175,48 @@ class Token{
                 }
             break;
             case 'header':
-                $token = $this->request->header($this->config['keyName'],null);
+                $token = $this->request->header($keyName,null);
                 if (!$token || $token===null) {
-                    throw new AuthException($withoutMsg.' [HEADER] '.$this->config['keyName']);
+                    throw new AuthException($withoutMsg.' [HEADER] '.$keyName);
                 }
             break;
             case 'get':
-                $token = $this->request->get($this->config['keyName'],null);
+                $token = $this->request->get($keyName,null);
                 if (!$token || $token===null) {
-                    throw new AuthException($withoutMsg.' [GET] '.$this->config['keyName']);
+                    throw new AuthException($withoutMsg.' [GET] '.$keyName);
                 }
             break;
             case 'post':
-                $token = $this->request->post($this->config['keyName'],null);
+                $token = $this->request->post($keyName,null);
                 if (!$token || $token===null) {
-                    throw new AuthException($withoutMsg.' [POST] '.$this->config['keyName']);
+                    throw new AuthException($withoutMsg.' [POST] '.$keyName);
                 }
             break;
             case 'cookie':
-                $token = $this->request->cookie($this->config['keyName'],null);
+                $token = $this->request->cookie($keyName,null);
                 if (!$token || $token===null) {
-                    throw new AuthException($withoutMsg.' [COOKIE] '.$this->config['keyName']);
+                    throw new AuthException($withoutMsg.' [COOKIE] '.$keyName);
                 }
             break;
             case 'session':
-                $token = $this->request->sessions($this->config['keyName'],null);
+                $session = $this->request->session();
+                $token = $session->get($keyName, null);
                 if (!$token || $token===null) {
-                    throw new AuthException($withoutMsg.' [SESSION] '.$this->config['keyName']);
+                    throw new AuthException($withoutMsg.' [SESSION] '.$keyName);
                 }
             break;
         }
         
         return $token;
+    }
+
+    private function getClientKeyName(int $tokenType = self::ACCESS_TOKEN): string
+    {
+        if ($tokenType === self::REFRESH_TOKEN && in_array(strtolower($this->config['type']), ['cookie', 'session'], true)) {
+            return $this->config['keyName'] . '_refresh';
+        }
+
+        return $this->config['keyName'];
     }
 
     public function get($key = null){
@@ -214,7 +233,7 @@ class Token{
     }
 
 
-    public function verify(int $tokenType = self::ACCESS_TOKEN, string $token = null): array
+    public function verify(int $tokenType = self::ACCESS_TOKEN, ?string $token = null): array
     {
         $token = $token ?? $this->getClientToken();
         try {
@@ -227,7 +246,7 @@ class Token{
             throw new AuthException(static::$msg['access_expired'] ?? 'Access token expired'); 
         } catch (UnexpectedValueException $unexpectedValueException) {
             throw new AuthException(static::$msg['token_format_error'] ?? 'Access token format error');
-        } catch (JwtCacheTokenException | \Exception $exception) {
+        } catch (\Exception $exception) {
             throw new AuthException($exception->getMessage());
         }
     }

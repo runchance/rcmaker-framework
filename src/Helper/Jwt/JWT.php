@@ -62,6 +62,7 @@ class JWT
         'RS384' => ['openssl', 'SHA384'],
         'RS512' => ['openssl', 'SHA512'],
         'EdDSA' => ['sodium_crypto', 'EdDSA'],
+        'EDDSA' => ['sodium_crypto', 'EdDSA'],
     ];
 
     /**
@@ -136,7 +137,7 @@ class JWT
             // OpenSSL expects an ASN.1 DER sequence for ES256/ES384 signatures
             $sig = self::signatureToDER($sig);
         }
-        if (!self::verify("${headb64}.${bodyb64}", $sig, $key->getKeyMaterial(), $header->alg)) {
+        if (!self::verify($headb64 . '.' . $bodyb64, $sig, $key->getKeyMaterial(), $header->alg)) {
             throw new SignatureInvalidException('Signature verification failed');
         }
 
@@ -184,8 +185,8 @@ class JWT
         array $payload,
         $key,
         string $alg,
-        string $keyId = null,
-        array $head = null
+        ?string $keyId = null,
+        ?array $head = null
     ): string {
         $header = ['typ' => 'JWT', 'alg' => $alg];
         if ($keyId !== null) {

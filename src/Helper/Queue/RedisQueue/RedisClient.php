@@ -40,6 +40,14 @@ class RedisClient
     protected $_subscribeQueues = [];
 
     /**
+     * Whether the subscribe connection is currently blocking on brPop.
+     * Stored on the client itself to avoid dynamic properties on ext-redis objects.
+     *
+     * @var int
+     */
+    protected $_brPoping = 0;
+
+    /**
      * @var array
      */
     protected $_options = [
@@ -79,7 +87,6 @@ class RedisClient
             return;
         }
         $this->_redisSubscribe = redis('raw','redisSubscribe',1,null,null,$address);
-        $this->_redisSubscribe->brPoping = 0;
         $this->_redisSend = redis('raw','redisSend',1,null,null,$address);
         $this->_options = array_merge($this->_options, $options);
         
@@ -229,12 +236,12 @@ class RedisClient
     public function pull()
     {
         $this->tryToPullDelayQueue();
-        if (!$this->_subscribeQueues || $this->_redisSubscribe->brPoping) {
+        if (!$this->_subscribeQueues || $this->_brPoping) {
             return;
         }
         $cb = function ($data) use (&$cb) {
             if ($data) {
-                $this->_redisSubscribe->brPoping = 0;
+                $this->_brPoping = 0;
                 $redis_key = $data[0];
                 $package_str = $data[1];
                 $package = json_decode($package_str, true);
@@ -269,7 +276,7 @@ class RedisClient
                 }
             }
             if ($this->_subscribeQueues) {
-                $this->_redisSubscribe->brPoping = 1;
+                $this->_brPoping = 1;
                 call_user_func($this->timerCall,0.001,function($cb){
                     try {
                         $result = $this->_redisSubscribe->brPop(\array_keys($this->_subscribeQueues), 1);
@@ -282,7 +289,7 @@ class RedisClient
                 },[$cb],false);
             }
         };
-        $this->_redisSubscribe->brPoping = 1;
+        $this->_brPoping = 1;
         try {
             $result = $this->_redisSubscribe->brPop(\array_keys($this->_subscribeQueues), 1);
         } catch (\Exception $exception) {

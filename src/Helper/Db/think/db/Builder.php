@@ -85,7 +85,7 @@ abstract class Builder
      * @access public
      * @param  ConnectionInterface $connection 数据库连接对象实例
      */
-    public function __construct(ConnectionInterface $connection=null)
+    public function __construct(?ConnectionInterface $connection=null)
     {
         $this->connection = $connection;
     }

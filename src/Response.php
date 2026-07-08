@@ -39,10 +39,18 @@ class Response{
 
 	public function unset($id){
 		if(isset(static::$_connection['id_'.$this->id])){
-			static::$_connection['id_'.$this->id] = null;
+			unset(static::$_connection['id_'.$this->id]);
 		}
 		$this->RCrequest = null;
 		$this->_cookies = null;
+	}
+
+	protected static function headerParts($header){
+		$headerformat = explode(':', $header, 2);
+		if(count($headerformat) < 2){
+			return null;
+		}
+		return [$headerformat[0], trim($headerformat[1])];
 	}
 
 	public function setWorkermanCookie($cookies){
@@ -50,7 +58,7 @@ class Response{
 	}
 	public function send($response){
 		if(static::$_frame=='workerman'){
-			$this->workerman_send($response);
+			$this->workerman_send($response, $this->RCrequest);
 			return null;
 		}
 		if(static::$_frame=='swoole'){
@@ -59,7 +67,8 @@ class Response{
 		}
 		echo $response;
 	}
-	public function workerman_send($response,$request){
+	public function workerman_send($response,$request = null){
+		$request = $request ?? $this->RCrequest;
 		if($this->_cookies){
 			$header = [];
 			foreach($this->_cookies as $cookies){
@@ -73,9 +82,8 @@ class Response{
 			}
 			$this->_cookies = null;
 		}
-
-        $keep_alive = $request->header('connection');
-        if (($keep_alive === null && $request->protocolVersion() === '1.1')
+		$keep_alive = $request ? $request->header('connection') : null;
+		if (($keep_alive === null && $request && $request->protocolVersion() === '1.1')
             || $keep_alive === 'keep-alive' || $keep_alive === 'Keep-Alive'
         ) {
         	
@@ -129,8 +137,8 @@ class Response{
     }
     public function swoole_send($response){
     	$this->_status = 200;
-    	static::$_connection['id_'.$this->id]->header('Content-Type','text/html;charset=UTF-8');
-    	if($response instanceof ResponseObj || $this->findStaticFile){
+    	$hasContentType = false;
+    	if($response instanceof ResponseObj){
     		$resps = explode("\r\n",$response);
 	    	$status = explode(" ",$resps[0]);
 	    	if($status[1]!=='200'){
@@ -140,9 +148,15 @@ class Response{
 	    	$headers = array_slice($resps, 1);
 	    	foreach($headers as $key => $header){
 	    		if($header){
-	    			$headerformat = explode(':',$header);
+	    			$headerformat = static::headerParts($header);
+	    			if($headerformat === null){
+	    				continue;
+	    			}
 	    			if($headerformat[0]=='Server'){
 	    				$headerformat[1] = 'swoole-http-server';
+	    			}
+	    			if(strtolower($headerformat[0]) === 'content-type'){
+	    				$hasContentType = true;
 	    			}
 	    			if($headerformat[0]!=='Content-Length'){
     					static::$_connection['id_'.$this->id]->header($headerformat[0],trim($headerformat[1]));
@@ -155,6 +169,9 @@ class Response{
 	    		$response = $response->rawBody();
 	    	}
     	}
+		if(!$hasContentType && !$this->findStaticFile){
+			static::$_connection['id_'.$this->id]->header('Content-Type','text/html;charset=UTF-8');
+		}
 
     	if(!$this->findStaticFile){
     		static::$_connection['id_'.$this->id]->end($response);
@@ -184,7 +201,10 @@ class Response{
 	    	$headers = array_slice($resps, 1);
 	    	foreach($headers as $key => $header){
 	    		if($header){
-	    			$headerformat = explode(':',$header);
+	    			$headerformat = static::headerParts($header);
+	    			if($headerformat === null){
+	    				continue;
+	    			}
 	    			if($headerformat[0]=='Server'){
 	    				$headerformat[1] = 'rcmaker';
 	    			}

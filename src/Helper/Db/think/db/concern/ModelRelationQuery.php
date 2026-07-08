@@ -179,7 +179,7 @@ trait ModelRelationQuery
      * @param callable     $callback 闭包获取器
      * @return $this
      */
-    public function withAttr($name, callable $callback = null)
+    public function withAttr($name, ?callable $callback = null)
     {
         if (is_array($name)) {
             $this->options['with_attr'] = $name;
@@ -285,7 +285,7 @@ trait ModelRelationQuery
      * @param string            $tag    缓存标签
      * @return $this
      */
-    public function withCache($relation = true, $key = true, $expire = null, string $tag = null)
+    public function withCache($relation = true, $key = true, $expire = null, ?string $tag = null)
     {
         if (false === $relation || false === $key || !$this->getConnection()->getCache()) {
             return $this;

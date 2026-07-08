@@ -192,7 +192,7 @@ class Mongo extends Connection
      * @param string $db db
      * @return string
      */
-    public function db(string $db = null)
+    public function db(?string $db = null)
     {
         if (is_null($db)) {
             return $this->dbName;
@@ -427,7 +427,7 @@ class Mongo extends Connection
      * @throws ConnectionException
      * @throws RuntimeException
      */
-    public function command(Command $command, string $dbName = '', ReadPreference $readPreference = null, $typeMap = null, bool $master = false): array
+    public function command(Command $command, string $dbName = '', ?ReadPreference $readPreference = null, $typeMap = null, bool $master = false): array
     {
         $this->initConnect($master);
         $this->db->updateQueryTimes();

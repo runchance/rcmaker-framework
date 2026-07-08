@@ -90,7 +90,7 @@ trait RelationShip
      * @param  bool   $auto 不存在是否自动获取
      * @return mixed
      */
-    public function getRelation(string $name = null, bool $auto = false)
+    public function getRelation(?string $name = null, bool $auto = false)
     {
         if (is_null($name)) {
             return $this->relation;
@@ -191,7 +191,7 @@ trait RelationShip
      * @param  Query   $query    Query对象
      * @return Query
      */
-    public static function has(string $relation, string $operator = '>=', int $count = 1, string $id = '*', string $joinType = '', Query $query = null): Query
+    public static function has(string $relation, string $operator = '>=', int $count = 1, string $id = '*', string $joinType = '', ?Query $query = null): Query
     {
         return (new static())
             ->$relation()
@@ -208,7 +208,7 @@ trait RelationShip
      * @param  Query  $query    Query对象
      * @return Query
      */
-    public static function hasWhere(string $relation, $where = [], string $fields = '*', string $joinType = '', Query $query = null): Query
+    public static function hasWhere(string $relation, $where = [], string $fields = '*', string $joinType = '', ?Query $query = null): Query
     {
         return (new static())
             ->$relation()
@@ -226,7 +226,7 @@ trait RelationShip
      * @param  bool    $first
      * @return bool
      */
-    public function eagerly(Query $query, string $relation, $field, string $joinType = '', Closure $closure = null, bool $first = false): bool
+    public function eagerly(Query $query, string $relation, $field, string $joinType = '', ?Closure $closure = null, bool $first = false): bool
     {
         $relation = Str::camel($relation);
         $class    = $this->$relation();
@@ -627,7 +627,7 @@ trait RelationShip
      * @param  string       $localKey   当前模型关联键
      * @return MorphToMany
      */
-    public function morphToMany(string $model, string $middle, $morph = null, string $localKey = null): MorphToMany
+    public function morphToMany(string $model, string $middle, $morph = null, ?string $localKey = null): MorphToMany
     {
         if (is_null($morph)) {
             $morph = $middle;
@@ -657,7 +657,7 @@ trait RelationShip
      * @param  string       $foreignKey 关联外键
      * @return MorphToMany
      */
-    public function morphByMany(string $model, string $middle, $morph = null, string $foreignKey = null): MorphToMany
+    public function morphByMany(string $model, string $middle, $morph = null, ?string $foreignKey = null): MorphToMany
     {
         if (is_null($morph)) {
             $morph = $middle;

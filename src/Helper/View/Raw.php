@@ -36,13 +36,23 @@ class Raw implements View
         static $suffix;
         $suffix = $suffix ? : Config::get('view','suffix') ?? 'html';
         $view_path = \view_path() . "/$app/$template.$suffix";
-        \extract(static::$_vars);
-        \extract($vars);
-        \ob_start();
-        // Try to include php file.
-        include $view_path;
-        static::$_vars = [];
-        return \ob_get_clean();
+        if(!\is_file($view_path)){
+            throw new \RuntimeException("View template not found: $view_path");
+        }
+        $level = \ob_get_level();
+        try {
+            \extract(static::$_vars);
+            \extract($vars);
+            \ob_start();
+            // Try to include php file.
+            include $view_path;
+            return \ob_get_clean();
+        } finally {
+            static::$_vars = [];
+            while(\ob_get_level() > $level){
+                \ob_end_clean();
+            }
+        }
     }
 
 }

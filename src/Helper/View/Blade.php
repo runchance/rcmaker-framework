@@ -41,9 +41,11 @@ class Blade implements View
             $views[$app] = new BladeView($view_path, \runtime_path() . '/views/blade');
         }
         $vars = \array_merge(static::$_vars, $vars);
-        $content = $views[$app]->render($template, $vars);
-        static::$_vars = [];
-        return $content;
+        try {
+            return $views[$app]->render($template, $vars);
+        } finally {
+            static::$_vars = [];
+        }
     }
 
 }

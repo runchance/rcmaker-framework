@@ -43,9 +43,11 @@ class Twig implements View
         }
         $view_path = \view_path() . "/$app/$template.$suffix";
         $vars = \array_merge(static::$_vars, $vars);
-        $content = $views[$app]->render("$template.$suffix", $vars);
-        static::$_vars = [];
-        return $content;
+        try {
+            return $views[$app]->render("$template.$suffix", $vars);
+        } finally {
+            static::$_vars = [];
+        }
     }
 
 }

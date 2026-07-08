@@ -68,7 +68,7 @@ class MorphMany extends Relation
      * @param  Closure $closure     闭包查询条件
      * @return Collection
      */
-    public function getRelation(array $subRelation = [], Closure $closure = null): Collection
+    public function getRelation(array $subRelation = [], ?Closure $closure = null): Collection
     {
         if ($closure) {
             $closure($this->getClosureType($closure));
@@ -95,7 +95,7 @@ class MorphMany extends Relation
      * @param  Query   $query    Query对象
      * @return Query
      */
-    public function has(string $operator = '>=', int $count = 1, string $id = '*', string $joinType = '', Query $query = null)
+    public function has(string $operator = '>=', int $count = 1, string $id = '*', string $joinType = '', ?Query $query = null)
     {
         throw new Exception('relation not support: has');
     }
@@ -109,7 +109,7 @@ class MorphMany extends Relation
      * @param  Query  $query    Query对象
      * @return Query
      */
-    public function hasWhere($where = [], $fields = null, string $joinType = '', Query $query = null)
+    public function hasWhere($where = [], $fields = null, string $joinType = '', ?Query $query = null)
     {
         throw new Exception('relation not support: hasWhere');
     }
@@ -124,7 +124,7 @@ class MorphMany extends Relation
      * @param  array   $cache       关联缓存
      * @return void
      */
-    public function eagerlyResultSet(array &$resultSet, string $relation, array $subRelation, Closure $closure = null, array $cache = []): void
+    public function eagerlyResultSet(array &$resultSet, string $relation, array $subRelation, ?Closure $closure = null, array $cache = []): void
     {
         $morphType = $this->morphType;
         $morphKey  = $this->morphKey;
@@ -167,7 +167,7 @@ class MorphMany extends Relation
      * @param  array   $cache       关联缓存
      * @return void
      */
-    public function eagerlyResult(Model $result, string $relation, array $subRelation = [], Closure $closure = null, array $cache = []): void
+    public function eagerlyResult(Model $result, string $relation, array $subRelation = [], ?Closure $closure = null, array $cache = []): void
     {
         $pk = $result->getPk();
 
@@ -196,7 +196,7 @@ class MorphMany extends Relation
      * @param  string  $name 统计字段别名
      * @return mixed
      */
-    public function relationCount(Model $result, Closure $closure = null, string $aggregate = 'count', string $field = '*', string &$name = null)
+    public function relationCount(Model $result, ?Closure $closure = null, string $aggregate = 'count', string $field = '*', ?string &$name = null)
     {
         $pk = $result->getPk();
 
@@ -225,7 +225,7 @@ class MorphMany extends Relation
      * @param  string  $name 统计字段别名
      * @return string
      */
-    public function getRelationCountQuery(Closure $closure = null, string $aggregate = 'count', string $field = '*', string &$name = null): string
+    public function getRelationCountQuery(?Closure $closure = null, string $aggregate = 'count', string $field = '*', ?string &$name = null): string
     {
         if ($closure) {
             $closure($this->getClosureType($closure), $name);
@@ -247,7 +247,7 @@ class MorphMany extends Relation
      * @param  array   $cache       关联缓存
      * @return array
      */
-    protected function eagerlyMorphToMany(array $where, array $subRelation = [], Closure $closure = null, array $cache = []): array
+    protected function eagerlyMorphToMany(array $where, array $subRelation = [], ?Closure $closure = null, array $cache = []): array
     {
         // 预载入关联查询 支持嵌套预载入
         $this->query->removeOption('where');

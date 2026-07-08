@@ -11,6 +11,8 @@ class QueueConsumer
 
     protected $_timer = null;
 
+    protected $_type = 'workerman';
+
     protected $_work = null;
     /**
      * StompConsumer constructor.
@@ -21,7 +23,7 @@ class QueueConsumer
         $this->_consumerDir = $consumer_dir;
         $this->_type = $type;
         $this->_timer = $timer;
-        $this->work = $work;
+        $this->_work = $work;
         $this->start();
     }
 
@@ -46,7 +48,7 @@ class QueueConsumer
                 $class = str_replace('/', "\\", substr(substr($file, strlen(base_path())), 0, -4));
                 $consumer = Container::get($class);
                 $connection_name = $consumer->connection ?? 'default';
-                $consumer->worker_id = $this->work->id;
+                $consumer->worker_id = $this->_work->id;
                 $queue = $consumer->queue;
                 $connection = Client::connection($connection_name,$this->_type);
                 $connection->subscribe($queue,[$consumer, 'handle']);

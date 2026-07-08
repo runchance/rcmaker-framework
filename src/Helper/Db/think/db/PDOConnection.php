@@ -488,7 +488,7 @@ abstract class PDOConnection extends Connection
      * @param string $field     字段名
      * @return array|string
      */
-    public function getFieldsType($tableName, string $field = null)
+    public function getFieldsType($tableName, ?string $field = null)
     {
         $result = $this->getTableInfo($tableName, 'type');
 
@@ -679,7 +679,7 @@ abstract class PDOConnection extends Connection
      * @return array
      * @throws DbException
      */
-    protected function pdoQuery(BaseQuery $query, $sql, array $bind = [], bool $master = null): array
+    protected function pdoQuery(BaseQuery $query, $sql, array $bind = [], ?bool $master = null): array
     {
         // 分析查询表达式
         $query->parseOptions();
@@ -1622,7 +1622,7 @@ abstract class PDOConnection extends Connection
      * @param string    $sequence 自增序列名
      * @return mixed
      */
-    public function getLastInsID(BaseQuery $query, string $sequence = null)
+    public function getLastInsID(BaseQuery $query, ?string $sequence = null)
     {
         try {
             $insertId = $this->linkID->lastInsertId($sequence);

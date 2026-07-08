@@ -73,7 +73,7 @@ class MorphOne extends Relation
      * @param  Closure $closure     闭包查询条件
      * @return Model
      */
-    public function getRelation(array $subRelation = [], Closure $closure = null)
+    public function getRelation(array $subRelation = [], ?Closure $closure = null)
     {
         if ($closure) {
             $closure($this->getClosureType($closure));
@@ -105,7 +105,7 @@ class MorphOne extends Relation
      * @param  Query   $query    Query对象
      * @return Query
      */
-    public function has(string $operator = '>=', int $count = 1, string $id = '*', string $joinType = '', Query $query = null)
+    public function has(string $operator = '>=', int $count = 1, string $id = '*', string $joinType = '', ?Query $query = null)
     {
         return $this->parent;
     }
@@ -119,7 +119,7 @@ class MorphOne extends Relation
      * @param  Query  $query    Query对象
      * @return Query
      */
-    public function hasWhere($where = [], $fields = null, string $joinType = '', Query $query = null)
+    public function hasWhere($where = [], $fields = null, string $joinType = '', ?Query $query = null)
     {
         throw new Exception('relation not support: hasWhere');
     }
@@ -134,7 +134,7 @@ class MorphOne extends Relation
      * @param  array   $cache       关联缓存
      * @return void
      */
-    public function eagerlyResultSet(array &$resultSet, string $relation, array $subRelation, Closure $closure = null, array $cache = []): void
+    public function eagerlyResultSet(array &$resultSet, string $relation, array $subRelation, ?Closure $closure = null, array $cache = []): void
     {
         $morphType = $this->morphType;
         $morphKey  = $this->morphKey;
@@ -186,7 +186,7 @@ class MorphOne extends Relation
      * @param  array   $cache       关联缓存
      * @return void
      */
-    public function eagerlyResult(Model $result, string $relation, array $subRelation = [], Closure $closure = null, array $cache = []): void
+    public function eagerlyResult(Model $result, string $relation, array $subRelation = [], ?Closure $closure = null, array $cache = []): void
     {
         $pk = $result->getPk();
 
@@ -331,7 +331,7 @@ class MorphOne extends Relation
      * @return void
      * @throws Exception
      */
-    protected function bindAttr(Model $result, Model $model = null): void
+    protected function bindAttr(Model $result, ?Model $model = null): void
     {
         foreach ($this->bindAttr as $key => $attr) {
             $key   = is_numeric($key) ? $attr : $key;

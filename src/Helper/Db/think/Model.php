@@ -524,7 +524,7 @@ abstract class Model implements JsonSerializable, ArrayAccess, Arrayable, Jsonab
      * @param string $sequence 自增序列名
      * @return bool
      */
-    public function save(array $data = [], string $sequence = null): bool
+    public function save(array $data = [], ?string $sequence = null): bool
     {
         // 数据对象赋值
         $this->setAttrs($data);
@@ -666,7 +666,7 @@ abstract class Model implements JsonSerializable, ArrayAccess, Arrayable, Jsonab
      * @param string $sequence 自增名
      * @return bool
      */
-    protected function insertData(string $sequence = null): bool
+    protected function insertData(?string $sequence = null): bool
     {
         if (false === $this->trigger('BeforeInsert')) {
             return false;
@@ -971,22 +971,22 @@ abstract class Model implements JsonSerializable, ArrayAccess, Arrayable, Jsonab
     }
 
     // ArrayAccess
-    public function offsetSet($name, $value)
+    public function offsetSet(mixed $name, mixed $value): void
     {
         $this->setAttr($name, $value);
     }
 
-    public function offsetExists($name): bool
+    public function offsetExists(mixed $name): bool
     {
         return $this->__isset($name);
     }
 
-    public function offsetUnset($name)
+    public function offsetUnset(mixed $name): void
     {
         $this->__unset($name);
     }
 
-    public function offsetGet($name)
+    public function offsetGet(mixed $name): mixed
     {
         return $this->getAttr($name);
     }
@@ -997,7 +997,7 @@ abstract class Model implements JsonSerializable, ArrayAccess, Arrayable, Jsonab
      * @param array $scope 不启用的全局查询范围
      * @return Query
      */
-    public static function withoutGlobalScope(array $scope = null)
+    public static function withoutGlobalScope(?array $scope = null)
     {
         $model = new static();
 

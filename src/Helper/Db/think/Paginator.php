@@ -98,7 +98,7 @@ abstract class Paginator implements ArrayAccess, Countable, IteratorAggregate, J
      */
     protected static $maker;
 
-    public function __construct($items, int $listRows, int $currentPage = 1, int $total = null, bool $simple = false, array $options = [])
+    public function __construct($items, int $listRows, int $currentPage = 1, ?int $total = null, bool $simple = false, array $options = [])
     {
         $this->options = array_merge($this->options, $options);
 
@@ -134,7 +134,7 @@ abstract class Paginator implements ArrayAccess, Countable, IteratorAggregate, J
      * @param array $options
      * @return Paginator
      */
-    public static function make($items, int $listRows, int $currentPage = 1, int $total = null, bool $simple = false, array $options = [])
+    public static function make($items, int $listRows, int $currentPage = 1, ?int $total = null, bool $simple = false, array $options = [])
     {
         if (isset(static::$maker)) {
             return call_user_func(static::$maker, $items, $listRows, $currentPage, $total, $simple, $options);
@@ -319,7 +319,7 @@ abstract class Paginator implements ArrayAccess, Countable, IteratorAggregate, J
      * @param string|null $fragment
      * @return $this
      */
-    public function fragment(string $fragment = null)
+    public function fragment(?string $fragment = null)
     {
         $this->options['fragment'] = $fragment;
 
@@ -410,7 +410,7 @@ abstract class Paginator implements ArrayAccess, Countable, IteratorAggregate, J
      * @return Traversable An instance of an object implementing <b>Iterator</b> or
      * <b>Traversable</b>
      */
-    public function getIterator()
+    public function getIterator(): Traversable
     {
         return new ArrayIterator($this->items->all());
     }
@@ -421,7 +421,7 @@ abstract class Paginator implements ArrayAccess, Countable, IteratorAggregate, J
      * @param mixed $offset
      * @return bool
      */
-    public function offsetExists($offset)
+    public function offsetExists(mixed $offset): bool
     {
         return $this->items->offsetExists($offset);
     }
@@ -432,7 +432,7 @@ abstract class Paginator implements ArrayAccess, Countable, IteratorAggregate, J
      * @param mixed $offset
      * @return mixed
      */
-    public function offsetGet($offset)
+    public function offsetGet(mixed $offset): mixed
     {
         return $this->items->offsetGet($offset);
     }
@@ -443,7 +443,7 @@ abstract class Paginator implements ArrayAccess, Countable, IteratorAggregate, J
      * @param mixed $offset
      * @param mixed $value
      */
-    public function offsetSet($offset, $value)
+    public function offsetSet(mixed $offset, mixed $value): void
     {
         $this->items->offsetSet($offset, $value);
     }
@@ -455,7 +455,7 @@ abstract class Paginator implements ArrayAccess, Countable, IteratorAggregate, J
      * @return void
      * @since  5.0.0
      */
-    public function offsetUnset($offset)
+    public function offsetUnset(mixed $offset): void
     {
         $this->items->offsetUnset($offset);
     }
@@ -498,7 +498,7 @@ abstract class Paginator implements ArrayAccess, Countable, IteratorAggregate, J
     /**
      * Specify data which should be serialized to JSON
      */
-    public function jsonSerialize()
+    public function jsonSerialize(): mixed
     {
         return $this->toArray();
     }

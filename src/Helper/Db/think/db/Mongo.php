@@ -41,7 +41,7 @@ class Mongo extends BaseQuery
      * @throws ConnectionException
      * @throws RuntimeException
      */
-    public function command(Command $command, string $dbName = '', ReadPreference $readPreference = null, $typeMap = null)
+    public function command(Command $command, string $dbName = '', ?ReadPreference $readPreference = null, $typeMap = null)
     {
         return $this->connection->command($command, $dbName, $readPreference, $typeMap);
     }
@@ -95,7 +95,7 @@ class Mongo extends BaseQuery
      * @param  string $field 字段名
      * @return integer
      */
-    public function count(string $field = null): int
+    public function count(?string $field = null): int
     {
         $result = $this->cmd('count');
 
@@ -416,7 +416,7 @@ class Mongo extends BaseQuery
      * @param int $length 查询数量
      * @return $this
      */
-    public function limit(int $offset, int $length = null)
+    public function limit(int $offset, ?int $length = null)
     {
         if (is_null($length)) {
             $length = $offset;

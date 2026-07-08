@@ -86,18 +86,26 @@ class Validator{
     	return $this;
     }
 
+	private function matchPattern($pattern, $value): bool{
+		if ($value === null || is_array($value) || is_object($value)) {
+			return false;
+		}
+		return preg_match($pattern, (string)$value) === 1;
+	}
+
 
 
     public function rule($rule=null){
     	
-    	$this->rule = array_key_exists($rule,static::$validators) ? $rule : 'string';
+		$this->rule = is_string($rule) && array_key_exists($rule, static::$validators) ? $rule : 'string';
     	$this->fail[$this->field]['rule'] = $this->rule;
     	$this->fieldtype = static::$validators[$this->rule][1];
     	return $this;
     }
 
     public function name($name=null){
-    	$this->fields[$this->field] = $name ?? $this->field;
+		$field = $this->field ?? '';
+		$this->fields[$field] = $name ?? $field;
     	return $this;
     }
 
@@ -260,19 +268,28 @@ class Validator{
             }
             if($this->image){
                 try {
+					$info = false;
                     if(isset($this->image[2]) && strtolower($this->image[2])=='webp' && strtolower($file->extension())=='webp'){
                         $webp = @\imagecreatefromwebp($file->getRealPath());
                         if(!$webp){
                             $this->setFail('image','image',''.($field_name ? '['.$field_name.']' : '').'['.$file->getUploadName().'] 不是有效的图片');
                             return false;
                         }
-                        $width = \imagesx($img);
-                        $height = \imagesy($img);
+						$width = \imagesx($webp);
+						$height = \imagesy($webp);
                         $type = 17;
+						$info = [$width, $height, $type, null];
                         \imagedestroy($webp);
                     }else{
-                       $info = list($width, $height, $type, $attr) = \getimagesize($file->getRealPath()); 
+						$info = @\getimagesize($file->getRealPath());
+						if($info){
+							[$width, $height, $type, $attr] = $info;
+						}
                     }
+					if(!$info){
+						$this->setFail('image','image',''.($field_name ? '['.$field_name.']' : '').'['.$file->getUploadName().'] 不是有效的图片');
+						return false;
+					}
                     if(isset($this->image[0]) || isset($this->image[1])){
                         $check = true;
                         if(isset($this->image[0]) && $this->image[0]<>$width){
@@ -292,11 +309,7 @@ class Validator{
                             return false;
                         }
                     }
-                    if(!$info){
-                        $this->setFail('image','image',''.($field_name ? '['.$field_name.']' : '').'['.$file->getUploadName().'] 不是有效的图片');
-                        return false;
-                    }
-                } catch (\Exception $e) {
+				} catch (\Throwable $e) {
                     $this->setFail('image','image',''.($field_name ? '['.$field_name.']' : '').'['.$file->getUploadName().'] 不是有效的图片');
                     return false;
                 }
@@ -323,7 +336,7 @@ class Validator{
     	$this->value = (string)$value;
     	$this->stringOption($options);
     	$match='/^1[3456789]\d{9}$/i';
-    	if(!preg_match($match, $value)){
+		if(!$this->matchPattern($match, $value)){
     		$this->setFail('type','Phone');
     		return false;
     	}
@@ -451,7 +464,7 @@ class Validator{
     	if($this->attach){
     		$value = str_replace($this->attach,'',$value);
     	}
-    	if(!preg_match($match, $value)){
+		if(!$this->matchPattern($match, $value)){
     		$this->setFail('type','Chinese');
     		return false;
     	}
@@ -469,7 +482,7 @@ class Validator{
     	if($this->attach){
     		$value = str_replace($this->attach,'',$value);
     	}
-    	if(!preg_match($match, $value)){
+	    	if(!$this->matchPattern($match, $value)){
     		$this->setFail('type','Alnum');
     		return false;
     	}
@@ -481,12 +494,16 @@ class Validator{
     }
 
     public function isAlpha($value,$options=[]){
+		$this->value = (string)$value;
+		$this->stringOption($options);
     	$match='/^[a-zA-Z]+$/i';
-    	if(!preg_match($match, $value)){
+		if($this->attach){
+			$value = str_replace($this->attach,'',$value);
+		}
+	    	if(!$this->matchPattern($match, $value)){
     		$this->setFail('type','Alpha');
     		return false;
     	}
-    	$this->value = (string)$value;
     	if(!$this->compare($this->value)){
     		return false;
     	}
@@ -495,12 +512,16 @@ class Validator{
 
 
     public function isEmail($value,$options=[]){
+		$this->value = (string)$value;
+		$this->stringOption($options);
     	$match='/^[\.a-zA-Z0-9_-]+@[a-zA-Z0-9_-]+(\.[a-zA-Z0-9_-]+)+$/i';
-    	if(!preg_match($match, $value)){
+		if($this->attach){
+			$value = str_replace($this->attach,'',$value);
+		}
+	    	if(!$this->matchPattern($match, $value)){
     		$this->setFail('type','Email');
     		return false;
     	}
-    	$this->value = (string)$value;
     	if(!$this->compare($this->value)){
     		return false;
     	}
@@ -510,7 +531,7 @@ class Validator{
 
     public function isPfloat($value,$options=[]){
     	$match='/^(([0-9]+\.[0-9]*[1-9][0-9]*)|([0-9]*[1-9][0-9]*\.[0-9]+)|([0-9]*[1-9][0-9]*))$/i';
-    	if(!preg_match($match, $value)){
+	    	if(!$this->matchPattern($match, $value)){
     		$this->setFail('type','Non-positive floating number');
     		return false;
     	}
@@ -523,7 +544,7 @@ class Validator{
 
     public function isNpfloat($value,$options=[]){
     	$match='/^((-\d+(\.\d+)?)|(0+(\.0+)?))$/i';
-    	if(!preg_match($match, $value)){
+	    	if(!$this->matchPattern($match, $value)){
     		$this->setFail('type','Non-positive floating number');
     		return false;
     	}
@@ -536,7 +557,7 @@ class Validator{
 
     public function isNfloat($value,$options=[]){
     	$match='/^(-(([0-9]+\.[0-9]*[1-9][0-9]*)|([0-9]*[1-9][0-9]*\.[0-9]+)|([0-9]*[1-9][0-9]*)))$/i';
-    	if(!preg_match($match, $value)){
+	    	if(!$this->matchPattern($match, $value)){
     		$this->setFail('type','Non-negative floating number');
     		return false;
     	}
@@ -549,7 +570,7 @@ class Validator{
 
     public function isNnfloat($value,$options=[]){
     	$match='/^\d+(\.\d+)?$/i';
-    	if(!preg_match($match, $value)){
+	    	if(!$this->matchPattern($match, $value)){
     		$this->setFail('type','Non-negative floating number');
     		return false;
     	}
@@ -562,7 +583,7 @@ class Validator{
 
     public function isFloat($value,$options=[]){
     	$match='/^(-?\d+)(\.\d+)?$/i';
-    	if(!preg_match($match, $value)){
+	    	if(!$this->matchPattern($match, $value)){
     		$this->setFail('type','floating number');
     		return false;
     	}
@@ -575,11 +596,11 @@ class Validator{
     
     public function isNnint($value,$options=[]){
     	$match='/^\d+$/i';
-    	if(!preg_match($match, $value)){
+	    	if(!$this->matchPattern($match, $value)){
     		$this->setFail('type','Non-negative integer');
     		return false;
     	}
-    	$this->value = (integer)$value;
+		$this->value = (int)$value;
     	if(!$this->compare($this->value,'numeric')){
     		return false;
     	}
@@ -587,11 +608,11 @@ class Validator{
     }
     public function isNint($value,$options=[]){
     	$match='/^-[0-9]*[1-9][0-9]*$/i';
-    	if(!preg_match($match, $value)){
+	    	if(!$this->matchPattern($match, $value)){
     		$this->setFail('type','Negative integer');
     		return false;
     	}
-    	$this->value = (integer)$value;
+		$this->value = (int)$value;
     	if(!$this->compare($this->value,'numeric')){
     		return false;
     	}
@@ -600,11 +621,11 @@ class Validator{
 
     public function isNpint($value,$options=[]){
     	$match='/^((-\d+)|(0+))$/i';
-    	if(!preg_match($match, $value)){
+	    	if(!$this->matchPattern($match, $value)){
     		$this->setFail('type','Non-positive integer');
     		return false;
     	}
-    	$this->value = (integer)$value;
+		$this->value = (int)$value;
     	if(!$this->compare($this->value,'numeric')){
     		return false;
     	}
@@ -613,11 +634,11 @@ class Validator{
 
     public function isPint($value,$options=[]){
     	$match='/^[0-9]*[1-9][0-9]*$/i';
-    	if(!preg_match($match, $value)){
+	    	if(!$this->matchPattern($match, $value)){
     		$this->setFail('type','Positive integer');
     		return false;
     	}
-    	$this->value = (integer)$value;
+		$this->value = (int)$value;
     	if(!$this->compare($this->value,'numeric')){
     		return false;
     	}
@@ -630,11 +651,11 @@ class Validator{
     public function isInteger($value,$options=[]){
     	
     	$match='/^[-]{0,1}[0-9]+$/i';
-    	if(!preg_match($match, $value)){
+	    	if(!$this->matchPattern($match, $value)){
     		$this->setFail('type','Integer');
     		return false;
     	}
-    	$this->value = (integer)$value;
+		$this->value = (int)$value;
     	if(!$this->compare($this->value,'numeric')){
     		return false;
     	}
@@ -656,14 +677,14 @@ class Validator{
     	$this->fail[$field]['exp'] = $exp;
     }
 
-    public function check($value,$rule,callable $callable=null){
+    public function check($value,$rule, ?callable $callable = null){
     	$rules = [''=>$rule];
     	$values = [''=>$value];
     	$checkvalue = $this->input($values,$rules,$callable);
     	return $checkvalue ? $checkvalue[''] : false;
     }
 
-	public function input(array $input, array $rules,callable $callable=null){
+	public function input(array $input, array $rules, ?callable $callable = null){
 		$this->initialize();
 		$values = [];
 		$check = true;

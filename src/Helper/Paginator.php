@@ -32,10 +32,10 @@ class Paginator implements JsonSerializable
     {
         $this->totalItems = $totalItems;
         $this->itemsPerPage = $itemsPerPage;
-        $this->currentPage = $currentPage;
+        $this->currentPage = max(1, (int) $currentPage);
         $this->urlPattern = $urlPattern;
         $this->data = $data;
-        $this->hasMore  = $totalItems ? false : count($data) >= ($this->itemsPerPage);
+        $this->hasMore  = $totalItems === null ? count((array) $data) >= $this->itemsPerPage : false;
         $this->updateNumPages();
     }
 
@@ -327,24 +327,31 @@ class Paginator implements JsonSerializable
         return $this->render();
     }
 
+    public function items()
+    {
+        return $this->data;
+    }
+
+    public function hasMorePages(): bool
+    {
+        return $this->getNextPage() !== null;
+    }
+
     public function toArray(): array
     {
-        try {
-            $total = $this->getTotalItems();
-        } catch (DomainException $e) {
-            $total = null;
-        }
+        $total = $this->getTotalItems();
 
         return [
-            'total'        => $this->getTotalItems(),
+            'total'        => $total,
             'per_page'     => $this->itemsPerPage,
             'current_page' => $this->currentPage,
-            'last_page'    => (int) ceil($this->getTotalItems() / $this->itemsPerPage),
+            'last_page'    => $total === null || $this->itemsPerPage == 0 ? null : (int) ceil($total / $this->itemsPerPage),
+            'has_more'     => $this->hasMorePages(),
             'data'         => $this->data,
         ];
     }
 
-    public function jsonSerialize()
+    public function jsonSerialize(): mixed
     {
         return $this->toArray();
     }

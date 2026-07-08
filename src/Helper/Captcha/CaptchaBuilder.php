@@ -44,6 +44,11 @@ class CaptchaBuilder implements CaptchaBuilderInterface
     protected $backgroundImages = array();
 
     /**
+     * @var int|null
+     */
+    protected $background = null;
+
+    /**
      * @var resource
      */
     protected $contents = null;
@@ -133,7 +138,7 @@ class CaptchaBuilder implements CaptchaBuilderInterface
      */
     public $tempDir = 'temp/';
 
-    public function __construct($phrase = null, PhraseBuilderInterface $builder = null)
+    public function __construct($phrase = null, ?PhraseBuilderInterface $builder = null)
     {
         if ($builder === null) {
             $this->builder = new PhraseBuilder;
@@ -345,8 +350,8 @@ class CaptchaBuilder implements CaptchaBuilderInterface
         $box = \imagettfbbox($size, 0, $font, $phrase);
         $textWidth = $box[2] - $box[0];
         $textHeight = $box[1] - $box[7];
-        $x = ($width - $textWidth) / 2;
-        $y = ($height - $textHeight) / 2 + $size;
+        $x = (int) round(($width - $textWidth) / 2);
+        $y = (int) round(($height - $textHeight) / 2 + $size);
 
         if (!$this->textColor) {
             $textColor = array($this->rand(0, 150), $this->rand(0, 150), $this->rand(0, 150));

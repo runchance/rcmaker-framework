@@ -59,7 +59,7 @@ class Middleware{
     }
 
     public static function getPathMiddleware(){
-        return static::$_instances['__path__'];
+        return static::$_instances['__path__'] ?? [];
     }
 
     public static function getMiddleware($app) {

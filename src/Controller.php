@@ -14,8 +14,337 @@ class Controller{
 	private static $_config = [];
 	private static $_pathparse = [];
 	private static $_callbacks = [];
+	private static $_staticMemory = [];
 	public static $_mb = [];
 	
+	private static function normalizeHost($host){
+		$host = strtolower(trim((string)$host));
+		if(substr_count($host, ':') === 1){
+			$host = explode(':', $host)[0];
+		}
+		return $host;
+	}
+
+	private static function normalizeAppName($app){
+		$app = trim((string)$app, " /\\\t\n\r\0\x0B");
+		$app = str_replace('/', '\\', $app);
+		return $app === '' ? 'index' : $app;
+	}
+
+	private static function normalizeIndex($index){
+		if(is_array($index)){
+			$index = array_values($index);
+			return [$index[0] ?? 'index', $index[1] ?? 'index'];
+		}
+		$index = trim((string)$index, " /\\\t\n\r\0\x0B");
+		if($index === ''){
+			return ['index', 'index'];
+		}
+		$index = str_replace('\\', '/', $index);
+		$index = str_replace('@', '/', $index);
+		$index = array_values(array_filter(explode('/', $index), 'strlen'));
+		return [$index[0] ?? 'index', $index[1] ?? 'index'];
+	}
+
+	private static function isValidClassPart($name){
+		return is_string($name) && preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name) === 1;
+	}
+
+	private static function isValidAppName($app){
+		$app = self::normalizeAppName($app);
+		foreach(explode('\\', $app) as $part){
+			if(!self::isValidClassPart($part)){
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private static function appToPath($app){
+		return str_replace('\\', '/', self::normalizeAppName($app));
+	}
+
+	private static function matchPathApp($segments, $apps){
+		$matchedApp = null;
+		$matchedLength = 0;
+		foreach($apps as $appname=>$appconf){
+			if(!empty($appconf['domains'])){
+				continue;
+			}
+			$appSegments = explode('/', self::appToPath($appname));
+			$length = count($appSegments);
+			if($length <= $matchedLength || $length > count($segments)){
+				continue;
+			}
+			if(array_slice($segments, 0, $length) === $appSegments){
+				$matchedApp = $appname;
+				$matchedLength = $length;
+			}
+		}
+		return [$matchedApp, $matchedLength];
+	}
+
+	private static function getAppDir($baseAppPath, $app){
+		return $baseAppPath.'/'.self::appToPath($app);
+	}
+
+	private static function isAbsolutePath($path){
+		if(!is_string($path) || $path === ''){
+			return false;
+		}
+		if($path[0] === '/' || $path[0] === '\\'){
+			return true;
+		}
+		return isset($path[1]) && ctype_alpha($path[0]) && $path[1] === ':';
+	}
+
+	private static function resolveDocumentRoot($documentRoot){
+		if(!is_string($documentRoot) || trim($documentRoot) === ''){
+			return BASE_PATH . '/public';
+		}
+		$documentRoot = trim($documentRoot);
+		if(self::isAbsolutePath($documentRoot)){
+			return $documentRoot;
+		}
+		return rtrim(public_path(), '/\\') . '/' . trim(str_replace('\\', '/', $documentRoot), '/');
+	}
+
+	private static function isStaticGzipEnabled($config){
+		return !array_key_exists('enable_static_gzip', $config) ? true : (bool)$config['enable_static_gzip'];
+	}
+
+	private static function isStaticPreloadEnabled($config){
+		return !empty($config['enable_static_preload']);
+	}
+
+	private static function getStaticPreloadExtensions($config){
+		$extensions = $config['static_preload_extensions'] ?? ['css', 'js', 'html', 'htm', 'json', 'svg', 'txt', 'xml'];
+		if(is_string($extensions)){
+			$extensions = explode(',', str_replace('，', ',', $extensions));
+		}
+		if(!is_array($extensions)){
+			$extensions = ['css', 'js', 'html', 'htm', 'json', 'svg', 'txt', 'xml'];
+		}
+		$extensions = array_map(function ($extension) {
+			return ltrim(strtolower(trim((string)$extension)), '.');
+		}, $extensions);
+		$extensions = array_values(array_filter(array_unique($extensions), 'strlen'));
+		return $extensions ?: ['css', 'js', 'html', 'htm', 'json', 'svg', 'txt', 'xml'];
+	}
+
+	private static function getStaticPreloadTimeLimit($config){
+		$limit = $config['static_preload_time_limit'] ?? 0.5;
+		if(!is_numeric($limit)){
+			return 0.5;
+		}
+		$limit = (float)$limit;
+		return $limit < 0 ? 0.0 : $limit;
+	}
+
+	private static function clientAcceptsGzip($request){
+		$acceptEncoding = (string) $request->header('accept-encoding', '');
+		return stripos($acceptEncoding, 'gzip') !== false;
+	}
+
+	private static function isCompressibleStaticFile($file){
+		$extension = strtolower((string) pathinfo($file, PATHINFO_EXTENSION));
+		return in_array($extension, ['css', 'js', 'html', 'htm', 'json', 'svg', 'txt', 'xml'], true);
+	}
+
+	private static function getStaticContentType($file){
+		$extension = strtolower((string) pathinfo($file, PATHINFO_EXTENSION));
+		$mimeMap = [
+			'css' => 'text/css; charset=UTF-8',
+			'js' => 'application/javascript; charset=UTF-8',
+			'html' => 'text/html; charset=UTF-8',
+			'htm' => 'text/html; charset=UTF-8',
+			'json' => 'application/json; charset=UTF-8',
+			'svg' => 'image/svg+xml',
+			'txt' => 'text/plain; charset=UTF-8',
+			'xml' => 'text/xml; charset=UTF-8',
+		];
+		if(isset($mimeMap[$extension])){
+			return $mimeMap[$extension];
+		}
+		if(function_exists('mime_content_type')){
+			$mime = mime_content_type($file);
+			if(is_string($mime) && $mime !== ''){
+				return $mime;
+			}
+		}
+		return 'application/octet-stream';
+	}
+
+	private static function shouldPreloadStaticFile($file, $config){
+		$extension = strtolower((string) pathinfo($file, PATHINFO_EXTENSION));
+		return in_array($extension, self::getStaticPreloadExtensions($config), true);
+	}
+
+	private static function buildStaticMemoryEntry($file){
+		$body = @file_get_contents($file);
+		if(!is_string($body)){
+			return null;
+		}
+		$mtime = @filemtime($file) ?: null;
+		$gzip = null;
+		if(self::isCompressibleStaticFile($file) && function_exists('gzencode')){
+			$encoded = gzencode($body, 6);
+			$gzip = is_string($encoded) ? $encoded : null;
+		}
+		return [
+			'body' => $body,
+			'mime' => self::getStaticContentType($file),
+			'mtime' => $mtime,
+			'gzip' => $gzip,
+		];
+	}
+
+	private static function preloadStaticDirectory($documentRoot, $config){
+		$documentRoot = realpath($documentRoot);
+		if($documentRoot === false || isset(self::$_staticMemory[$documentRoot])){
+			return;
+		}
+		self::$_staticMemory[$documentRoot] = [];
+		$started = microtime(true);
+		$timeLimit = self::getStaticPreloadTimeLimit($config);
+		echo '[static-preload] start ' . $documentRoot . ' limit=' . $timeLimit . 's' . PHP_EOL;
+		$loaded = 0;
+		$iterator = new \RecursiveIteratorIterator(
+			new \RecursiveDirectoryIterator($documentRoot, \FilesystemIterator::SKIP_DOTS),
+			\RecursiveIteratorIterator::SELF_FIRST
+		);
+		foreach($iterator as $item){
+			if($timeLimit > 0 && (microtime(true) - $started) >= $timeLimit){
+				echo '[static-preload] stop ' . $documentRoot . ' reason=time_limit loaded=' . $loaded . ' elapsed=' . round(microtime(true) - $started, 4) . 's' . PHP_EOL;
+				break;
+			}
+			if(!$item->isFile()){
+				continue;
+			}
+			$file = $item->getPathname();
+			if(!self::shouldPreloadStaticFile($file, $config)){
+				continue;
+			}
+			$entry = self::buildStaticMemoryEntry($file);
+			if($entry !== null){
+				self::$_staticMemory[$documentRoot][$file] = $entry;
+				$loaded++;
+			}
+		}
+		echo '[static-preload] done ' . $documentRoot . ' loaded=' . $loaded . ' elapsed=' . round(microtime(true) - $started, 4) . 's' . PHP_EOL;
+	}
+
+	private static function getPreloadedStaticEntry($config, $file){
+		if(!self::isStaticPreloadEnabled($config)){
+			return null;
+		}
+		$documentRoot = realpath(self::resolveDocumentRoot($config['document_root'] ?? ''));
+		$file = realpath($file);
+		if($documentRoot === false || $file === false){
+			return null;
+		}
+		return self::$_staticMemory[$documentRoot][$file] ?? null;
+	}
+
+	public static function warmupStaticPreload(){
+		self::parseConfig();
+		$configs = [];
+		if(self::isStaticPreloadEnabled(self::$_config)){
+			$configs[] = self::$_config;
+		}
+		foreach((self::$_config['app'] ?? []) as $appconf){
+			$merged = array_merge(self::$_config, $appconf);
+			if(self::isStaticPreloadEnabled($merged)){
+				$configs[] = $merged;
+			}
+		}
+		$warmedRoots = [];
+		foreach($configs as $config){
+			$documentRoot = self::resolveDocumentRoot($config['document_root'] ?? '');
+			$realRoot = realpath($documentRoot);
+			if($realRoot === false || isset($warmedRoots[$realRoot])){
+				continue;
+			}
+			self::preloadStaticDirectory($realRoot, $config);
+			$warmedRoots[$realRoot] = true;
+		}
+	}
+
+	private static function memoryStaticResponse($request, $config, $file){
+		$entry = self::getPreloadedStaticEntry($config, $file);
+		if(!$entry){
+			return null;
+		}
+		$headers = [
+			'Content-Type' => $entry['mime'],
+		];
+		if($entry['mtime']){
+			$headers['Last-Modified'] = gmdate('D, d M Y H:i:s', $entry['mtime']) . ' GMT';
+		}
+		if(self::isStaticGzipEnabled($config) && self::clientAcceptsGzip($request) && !$request->header('range', '') && is_string($entry['gzip'])){
+			$headers['Content-Encoding'] = 'gzip';
+			$headers['Vary'] = 'Accept-Encoding';
+			return new ResponseObj($request, 200, $headers, $entry['gzip']);
+		}
+		return new ResponseObj($request, 200, $headers, $entry['body']);
+	}
+
+	private static function gzipStaticResponse($request, $config, $file){
+		if(self::isStaticPreloadEnabled($config)){
+			return null;
+		}
+		if(!self::isStaticGzipEnabled($config) || !function_exists('gzencode')){
+			return null;
+		}
+		if(!self::clientAcceptsGzip($request)){
+			return null;
+		}
+		if($request->header('range', '')){
+			return null;
+		}
+		if(!self::isCompressibleStaticFile($file)){
+			return null;
+		}
+		$size = @filesize($file);
+		if($size === false || $size < 256){
+			return null;
+		}
+		$contents = @file_get_contents($file);
+		if(!is_string($contents) || $contents === ''){
+			return null;
+		}
+		$body = gzencode($contents, 6);
+		if($body === false){
+			return null;
+		}
+		$headers = [
+			'Content-Type' => self::getStaticContentType($file),
+			'Content-Encoding' => 'gzip',
+			'Vary' => 'Accept-Encoding',
+		];
+		if($mtime = @filemtime($file)){
+			$headers['Last-Modified'] = gmdate('D, d M Y H:i:s', $mtime) . ' GMT';
+		}
+		return new ResponseObj($request, 200, $headers, $body);
+	}
+
+	private static function isPathInBase($path, $basePath){
+		$path = realpath($path);
+		$basePath = realpath($basePath);
+		if($path === false || $basePath === false){
+			return false;
+		}
+		if(IS_WIN){
+			$path = strtolower($path);
+			$basePath = strtolower($basePath);
+		}
+		return $path === $basePath || strpos($path, $basePath . DIRECTORY_SEPARATOR) === 0;
+	}
+
+	private static function getAppNamespace($app){
+		return self::normalizeAppName($app);
+	}
+
 
 
 	//调用控制器主方法
@@ -29,6 +358,7 @@ class Controller{
         $response->_status = 200;
 		if(isset(static::$_callbacks[$key])){
         	list($callback, $app, $controller, $action, $args, $count) = static::$_callbacks[$key];
+	        	$controller_class = static::$_callbacks[$key][6] ?? "app\\$app\\controller\\$controller";
         	if($app=='__static__'){
         		$response->findStaticFile = true;
         		$response->staticFile = $controller;
@@ -36,20 +366,24 @@ class Controller{
         	if($count){
         		Stopwatch::start('__controller__');
 			}
-        	$request->app = ['app'=>$app,'controller'=>$controller,'action'=>$action,'class'=>"app\\$app\\controller\\$controller"];
+	        	$request->app = ['app'=>$app,'controller'=>$controller,'action'=>$action,'class'=>$controller_class];
         	$request->setGet($args);
             $response->response($app,$callback,$request);
             return null;
         }
-        if($config){
-	        if ($config['enable_static_file']) {
-	        	if(self::staticMode($path, $key,$config,$request,$response)){
-	        		return null;
-	        	}
-	        }
-        }
 		self::parseConfig();
 		$parseUrl = self::parseUrl($key,$request);
+		$staticConfig = $config ?? [];
+		foreach (['document_root', 'index_default', 'enable_static_file', 'enable_static_php', 'enable_static_gzip', 'enable_static_preload', 'static_preload_extensions', 'static_preload_time_limit'] as $staticKey) {
+			if (array_key_exists($staticKey, self::$_mb)) {
+				$staticConfig[$staticKey] = self::$_mb[$staticKey];
+			}
+		}
+		if(!empty($staticConfig['enable_static_file'])){
+			if(self::staticMode($path, $key,$staticConfig,$request,$response)){
+				return null;
+			}
+		}
 		
 		if(self::$_mb['count']){
 			Stopwatch::start('__controller__');
@@ -60,10 +394,11 @@ class Controller{
 				return null;
 			}
 		}
-		list($name,$appdir,$app,$controller,$action,$args,$count) = [
+		list($name,$appdir,$app,$appNamespace,$controller,$action,$args,$count) = [
 			self::$_mb['name'],
 			self::$_mb['appdir'],
 			self::$_mb['app'],
+			self::$_mb['app_namespace'],
 			self::$_mb['controller'],
 			self::$_mb['action'],
 			self::$_mb['args'],
@@ -81,7 +416,15 @@ class Controller{
 		if(!$action){
 			$action = 'index';
 		}
-		$controller_class = "".$name."\\$app\\controller\\$controller";
+		if(!self::isValidAppName($appNamespace) || !self::isValidClassPart($name) || !self::isValidClassPart($controller) || !self::isValidClassPart($action)){
+			$response->bad($request,'404');
+			return null;
+		}
+		if(!self::isPathInBase($appdir, Config::get('app','apps_path') ?? BASE_PATH.'/apps')){
+			$response->bad($request,'404');
+			return null;
+		}
+		$controller_class = "".$name."\\$appNamespace\\controller\\$controller";
 		$controller_class_file = $appdir.'/controller/'.$controller.'.php';
 		$request->setGet($args);
 		$request->app = ['app'=>$app,'controller'=>$controller,'action'=>$action,'class'=>$controller_class];
@@ -98,7 +441,7 @@ class Controller{
 		
 		if(\is_callable([$instance = Container::get($controller_class), $action])){
 			$callback = static::getCallback($app, [$instance, $action],$request,$args);
-			static::$_callbacks[$key] = [$callback, $app, $controller, $action, $args, $count];
+			static::$_callbacks[$key] = [$callback, $app, $controller, $action, $args, $count, $controller_class];
 			$response->response($app,$callback,$request);
 			
 		}else{
@@ -139,14 +482,14 @@ class Controller{
 		}
          
 		$ret = Route::dispatch($request->method(), $path);
-		if($ret[0] === Dispatcher::FOUND) { //查找全局路由
+		if(is_array($ret) && $ret[0] === Dispatcher::FOUND) { //查找全局路由
 			$app = $controller = $action = '';
 			$handler = $ret[1]['callback'];
 			$route = $ret[1]['route'];
             $route = clone $route;
 			$args = !empty($ret[2]) ? $ret[2] : null;
 			if (\is_array($handler)) {
-				if($handler[0]==='__static__'){
+				if(($handler[0] ?? null)==='__static__'){
 				    if ((isset($config['enable_static_file']) && $config['enable_static_file']) || !IS_CLI) {
 	    	        	if(self::staticMode($path, $key,$config,$request,$response,$handler[1])){
 	    	        		return null;
@@ -183,23 +526,46 @@ class Controller{
         return \ob_get_clean();
 	}
 
+	private static function buildStaticResponse($request, $config, $file){
+		if(($memoryResponse = self::memoryStaticResponse($request, $config, $file)) instanceof ResponseObj){
+			return $memoryResponse;
+		}
+		if(($gzipResponse = self::gzipStaticResponse($request, $config, $file)) instanceof ResponseObj){
+			return $gzipResponse;
+		}
+		\clearstatcache(false, $file);
+		if (!\is_file($file)) {
+			return new ResponseObj($request, 404, [], '404 Not Found');
+		}
+		return (new ResponseObj($request))->file($file);
+	}
+
 	protected static function staticMode($path, $key, $config, $request, $response, $file = null){
 		
-		$document_root = $config['document_root'] ?? BASE_PATH . '/public';
-		$file = $file ?? "$document_root$path";
+		$document_root = self::resolveDocumentRoot($config['document_root'] ?? '');
+		$path = $path === '' ? '/' : $path;
+		$file = $file ?? rtrim($document_root, '/\\') . $path;
+		if (($file === false || !\is_file($file)) && ($path === '/' || substr($path, -1) === '/' || \is_dir($file))) {
+			$indexDefault = ltrim((string) ($config['index_default'] ?? 'index.html'), '/\\');
+			$indexFile = rtrim($file, '/\\') . '/' . $indexDefault;
+			if (\is_file($indexFile)) {
+				$file = $indexFile;
+			}
+		}
 		if (false === $file || false === \is_file($file)) {
             return false;
         }
-        if (strpos($file, $document_root) !== 0) {
+		if (!self::isPathInBase($file, $document_root)) {
             $response->bad($request,'400');
             return true;
         }
+		$file = realpath($file);
         $ext = \pathinfo($file, PATHINFO_EXTENSION);
 	    if ($ext === 'php') {
 	    	if($path=='/index.php'){
 	    		return false;
 	    	}
-	    	if($config['enable_static_php']){
+	    	if(!empty($config['enable_static_php'])){
 		    		static::$_callbacks[$key] = [function ($request) use ($file) {
 		           return static::execFile($file);
 		       }, null,null,null,false];
@@ -211,13 +577,8 @@ class Controller{
 	    	return false;
 	       
 	    }
-	    static::$_callbacks[$key] = [static::getCallback('__static__', function ($request) use ($file) {
-            \clearstatcache(null, $file);
-            if (!\is_file($file)) {
-                $response->bad($request,'404');
-                return false;
-            }
-            return (new ResponseObj($request))->file($file);
+	    static::$_callbacks[$key] = [static::getCallback('__static__', function ($request) use ($config, $file) {
+				return self::buildStaticResponse($request, $config, $file);
         }, $request, null), '__static__', $file, null,null,null,false];
         list($callback, $app, $controller, $action, $args,$count) = static::$_callbacks[$key];
         $request->app['app'] = '__static__';
@@ -275,13 +636,36 @@ class Controller{
 			'debug'=>$conf['debug'] ?? true,
 			'error_msg'=>$conf['error_msg'] ?? 'page error!',
 			'error_types'=>$conf['error_types'] ?? E_ALL &~E_NOTICE &~E_STRICT &~E_DEPRECATED,
-			'index'=>$conf['index'] ?? 'index/index',
+			'index'=>self::normalizeIndex($conf['index'] ?? 'index/index'),
+			'index_default'=>$conf['index_default'] ?? 'index.html',
 			'route'=>$conf['route'] ?? true,
 			'with_custom_route'=>$conf['with_custom_route'] ?? true,
+			'document_root'=>$conf['document_root'] ?? null,
+			'enable_static_file'=>$conf['enable_static_file'] ?? false,
+			'enable_static_php'=>$conf['enable_static_php'] ?? false,
+			'enable_static_gzip'=>$conf['enable_static_gzip'] ?? true,
+			'enable_static_preload'=>$conf['enable_static_preload'] ?? false,
+			'static_preload_extensions'=>$conf['static_preload_extensions'] ?? ['css', 'js', 'html', 'htm', 'json', 'svg', 'txt', 'xml'],
+			'static_preload_time_limit'=>$conf['static_preload_time_limit'] ?? 0.5,
+			'default_app'=>self::normalizeAppName($conf['default_app'] ?? 'index'),
 			'appcount'=>isset($conf['app']) ? count($conf['app']) : 1,
 			'count'=>$conf['count'] ?? ['memory'=>true,'loadtime'=>true],
-			'app'=>$conf['app'] ?? []
+			'app'=>[],
+			'domain_map'=>[]
 		];
+		foreach(($conf['app'] ?? []) as $appname=>$appconf){
+			$appname = self::normalizeAppName($appname);
+			if(isset($appconf['index'])){
+				$appconf['index'] = self::normalizeIndex($appconf['index']);
+			}
+			self::$_config['app'][$appname] = $appconf;
+			foreach(($appconf['domains'] ?? []) as $domain){
+				$domain = self::normalizeHost($domain);
+				if($domain !== ''){
+					self::$_config['domain_map'][$domain] = $appname;
+				}
+			}
+		}
 		return true;
 	}
 
@@ -334,10 +718,10 @@ class Controller{
 		if($path && $path[0] === '/'){
 			$path = substr($path,1);
 		}
-		$explode = $path ? explode("/",$path) : array();
+		$explode = $path ? array_values(array_filter(explode("/",$path), 'strlen')) : array();
 		$getParm = [];
-		$host = $request->host(true);
-		$app = $appInstance = $request->get('a','index');
+		$host = self::normalizeHost($request->host(true));
+		$app = $appInstance = self::normalizeAppName($request->get('a',self::$_config['default_app']));
 		$config = [
 			'route'=>self::$_config['route'],
 			'with_custom_route'=>self::$_config['with_custom_route'],
@@ -350,57 +734,96 @@ class Controller{
 		$action = $actionInstance = $request->get('m',$config['index'][1]);
 		$appcount = self::$_config['appcount'];
 		$apps = self::$_config['app'] ?? [];
+		$domainMap = self::$_config['domain_map'] ?? [];
+		$domainMatched = false;
+		$matchedApp = $domainMap[$host] ?? null;
+		$matchedLength = 0;
 		if($config['route']){
-			if($appcount<=1){
+			if($matchedApp !== null){
+				$domainMatched = true;
+				$app = $matchedApp;
+				$controller = $explode[0] ?? $controller;
+				$action = $explode[1] ?? $action;
+				$getParm = array_slice($explode, 2);
+			}elseif($appcount<=1){
 				$controller = $explode[0] ?? $controller;
 				$action = $explode[1] ?? $action;
 				$getParm = array_slice($explode, 2);
 			}else{
-			    $app = $explode[0] ?? $app;
-    			$controller = $explode[1] ?? $controller;
-    			$action = $explode[2] ?? $action;
-    			$getParm = array_slice($explode, 3); 
+				list($matchedApp, $matchedLength) = self::matchPathApp($explode, $apps);
+				if($matchedApp !== null){
+					$app = $matchedApp;
+					$controller = $explode[$matchedLength] ?? $controller;
+					$action = $explode[$matchedLength + 1] ?? $action;
+					$getParm = array_slice($explode, $matchedLength + 2);
+				}else{
+					$app = self::$_config['default_app'];
+					$controller = $explode[0] ?? $controller;
+					$action = $explode[1] ?? $action;
+					$getParm = array_slice($explode, 2);
+				}
 			}
 		}
 		$baseAppName = Config::get('app','app_name') ?? 'app';
 		$baseAppPath = Config::get('app','apps_path') ?? BASE_PATH.'/apps';
-		$appdir = $baseAppPath.'/'.$app;
+		$appdir = self::getAppDir($baseAppPath, $app);
 
 		
 		$config_map = [
-			'route','with_custom_route','index','debug','error_msg','count'
+			'route','with_custom_route','index','index_default','debug','error_msg','count','document_root','enable_static_file','enable_static_php','enable_static_gzip','enable_static_preload','static_preload_extensions','static_preload_time_limit'
 		];
+		$matchedApp = null;
+		$matchedAppConf = null;
+		if($apps){
+			if(isset($domainMap[$host])){
+				$matchedApp = $domainMap[$host];
+				$matchedAppConf = $apps[$matchedApp] ?? [];
+				$domainMatched = true;
+			}
 
-		foreach($apps as $appname=>$appconf){
-			foreach($config_map as $map){
-				$config[$map] = $appconf[$map] ?? self::$_config[$map];
-			}
-			if(isset($appconf['route']) && !$appconf['route']){
-				$app = $appInstance;
-				$controller = $controllerInstance;
-				$action = $actionInstance;
-			}
-			//根据绑定域名查询应用
-			if(isset($appconf['domains']) && $appconf['domains']){
-				$app = $controller = $action = '';
-				if(in_array($host,$appconf['domains'])){
-					$appdir = $baseAppPath.'/'.$appname;
-					$app = $appname;
-					if(isset($config['route']) && $config['route']===true){
-						$controller = $explode[0] ?? ($config['index'][0] ?? $controller);
-						$action = $explode[1] ?? ($config['index'][1] ?? $action);
-						$getParm = array_slice($explode, 2);
+			if($matchedApp === null){
+				if(isset($apps[$app])){
+					if(!empty($apps[$app]['domains'])){
+						$app = $controller = $action = '';
+					}elseif(isset($apps[$app]['route']) && !$apps[$app]['route'] && $app !== $appInstance){
+						$app = $controller = $action = '';
+					}else{
+						$matchedApp = $app;
+						$matchedAppConf = $apps[$app];
 					}
-					break;
+				}elseif(isset($apps[$appInstance]) && isset($apps[$appInstance]['route']) && !$apps[$appInstance]['route']){
+					$matchedApp = $appInstance;
+					$matchedAppConf = $apps[$appInstance];
+					$app = $appInstance;
+					$controller = $controllerInstance;
+					$action = $actionInstance;
+					$getParm = [];
 				}
-			}else{
-				if($appname==$app){
-					if(isset($config['route']) && $config['route']===true && $appcount==1){
+			}
+
+			if($matchedApp !== null){
+				foreach($config_map as $map){
+					$config[$map] = $matchedAppConf[$map] ?? self::$_config[$map];
+				}
+				$app = $matchedApp;
+				$appdir = self::getAppDir($baseAppPath, $app);
+				if(isset($config['route']) && $config['route']===true){
+					if($domainMatched){
 						$controller = $explode[0] ?? ($config['index'][0] ?? $controller);
 						$action = $explode[1] ?? ($config['index'][1] ?? $action);
 						$getParm = array_slice($explode, 2);
+					}else{
+						$offset = $matchedLength > 0 ? $matchedLength : 0;
+						$controller = $explode[$offset] ?? ($config['index'][0] ?? $controller);
+						$action = $explode[$offset + 1] ?? ($config['index'][1] ?? $action);
+						$getParm = array_slice($explode, $offset + 2);
 					}
-					break;
+				}else{
+					$app = $domainMatched ? $matchedApp : $appInstance;
+					$controller = $controllerInstance;
+					$action = $actionInstance;
+					$appdir = self::getAppDir($baseAppPath, $app);
+					$getParm = [];
 				}
 			}
 		}
@@ -408,13 +831,14 @@ class Controller{
 		self::$_mb = array_merge([
 			'name'=>$baseAppName,
 			'app'=>$app,
+			'app_namespace'=>self::getAppNamespace($app),
 			'controller'=>$controller,
 			'action'=>$action,
 			'appcount'=>$appcount,
 			'appdir'=>$appdir,
 			'args'=>$args
 		],$config);
-		self::$_pathparse[$path] = self::$_mb;
+		self::$_pathparse[$key] = self::$_mb;
 		return true;
 	}
 

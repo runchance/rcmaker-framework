@@ -172,7 +172,7 @@ class worker{
 
 	private static function printCustomCliBanner(){
 		echo "----------------------------------------------- RCMAKER ------------------------------------------------" . PHP_EOL;
-		echo 'rcmaker version:' . static::rcmakerVersion() . '          PHP version:' . PHP_VERSION . PHP_EOL;
+		echo 'Rcmaker version:' . static::rcmakerVersion() . '          PHP version:' . PHP_VERSION . PHP_EOL;
 		echo 'Workerman version:' . Workerman::VERSION . '         Event-Loop:' . static::workermanEventLoopName() . PHP_EOL;
 		echo "----------------------------------------------- WORKERS ------------------------------------------------" . PHP_EOL;
 		echo "proto   user            worker          listen                 processes    status" . PHP_EOL;

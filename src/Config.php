@@ -135,14 +135,14 @@ final class Config{
 		$config_file = static::checkfile($file);
 		if(!$config_file){
 			$config_file = CONFIG_PATH.'/'.$file.'.php';
-			file::write($config_file,"<?php\nreturn ".var_export(array(),true).";\n?>");
+			static::write($config_file,"<?php\nreturn ".var_export(array(),true).";\n?>");
 		}
 		static::$_c[$file] = static::$_c[$file] ?? include($config_file);
 		if(isset(static::$_c[$file][$key]) && static::$_c[$file][$key]==$value){
 			return false;
 		}
 		static::$_c[$file][$key] = $value;
-		file::write($config_file,"<?php \nreturn ".var_export(static::$_c[$file],true).";\n?>");
+		static::write($config_file,"<?php \nreturn ".var_export(static::$_c[$file],true).";\n?>");
 	}
 	private static function checkfile($file){
 		$config_file = CONFIG_PATH.'/'.$file.'.php';

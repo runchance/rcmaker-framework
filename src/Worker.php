@@ -134,6 +134,9 @@ class worker{
 	}
 
 	private static function shouldPrintCustomCliBanner(){
+		if(Config::get('app','cli_banner')===false){
+			return false;
+		}
 		global $argv;
 		if(!isset($argv[1])){
 			return false;
@@ -161,13 +164,26 @@ class worker{
 		return $user !== '' ? $user : 'unknown';
 	}
 
-	private static function workermanEventLoopName(){
-		try{
-			$method = new \ReflectionMethod(Workerman::class, 'getEventLoopName');
-			return (string)$method->invoke(null);
-		}catch(\Throwable $e){
-			return '\\Workerman\\Events\\Select';
+	private static function resolveWorkermanEventLoopClass(){
+		if(Workerman::$eventLoopClass){
+			return Workerman::$eventLoopClass;
 		}
+		if(extension_loaded('event')){
+			return '\\Workerman\\Events\\Event';
+		}
+		if(extension_loaded('libevent')){
+			return '\\Workerman\\Events\\Libevent';
+		}
+		return '\\Workerman\\Events\\Select';
+	}
+
+	private static function ensureWorkermanEventLoopClass(){
+		Workerman::$eventLoopClass = static::resolveWorkermanEventLoopClass();
+		return Workerman::$eventLoopClass;
+	}
+
+	private static function workermanEventLoopName(){
+		return static::resolveWorkermanEventLoopClass();
 	}
 
 	private static function printCustomCliBanner(){
@@ -1086,6 +1102,7 @@ class worker{
 				Controller::warmupStaticPreload();
 			}
 			Stopwatch::$_framework = stopwatch('__frame__');
+			static::ensureWorkermanEventLoopClass();
 			static::prepareWorkermanCliOutput($start_app, $display_worker_config, $process_config);
 			Workerman::runAll();
 		}

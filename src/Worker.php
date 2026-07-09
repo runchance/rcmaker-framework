@@ -133,6 +133,95 @@ class worker{
 		return in_array($command, ['start', 'restart'], true);
 	}
 
+	private static function shouldPrintCustomCliBanner(){
+		global $argv;
+		if(!isset($argv[1])){
+			return false;
+		}
+		$command = strtolower(trim((string)$argv[1]));
+		return in_array($command, ['start', 'restart'], true);
+	}
+
+	private static function rcmakerVersion(){
+		if(class_exists('\Composer\InstalledVersions') && \Composer\InstalledVersions::isInstalled('runchance/rcmaker-framework')){
+			$version = \Composer\InstalledVersions::getPrettyVersion('runchance/rcmaker-framework') ?: '';
+			return str_replace('+no-version-set', '', $version);
+		}
+		return defined('VER') ? (string)VER : 'unknown';
+	}
+
+	private static function currentCliUser(){
+		if(function_exists('posix_getpwuid') && function_exists('posix_getuid')){
+			$userInfo = @posix_getpwuid(posix_getuid());
+			if(is_array($userInfo) && !empty($userInfo['name'])){
+				return (string)$userInfo['name'];
+			}
+		}
+		$user = get_current_user();
+		return $user !== '' ? $user : 'unknown';
+	}
+
+	private static function workermanEventLoopName(){
+		try{
+			$method = new \ReflectionMethod(Workerman::class, 'getEventLoopName');
+			return (string)$method->invoke(null);
+		}catch(\Throwable $e){
+			return '\\Workerman\\Events\\Select';
+		}
+	}
+
+	private static function printCustomCliBanner(){
+		echo "----------------------------------------------- RCMAKER ------------------------------------------------" . PHP_EOL;
+		echo 'rcmaker version:' . static::rcmakerVersion() . '          PHP version:' . PHP_VERSION . PHP_EOL;
+		echo 'Workerman version:' . Workerman::VERSION . '         Event-Loop:' . static::workermanEventLoopName() . PHP_EOL;
+		echo "----------------------------------------------- WORKERS ------------------------------------------------" . PHP_EOL;
+		echo "proto   user            worker          listen                 processes    status" . PHP_EOL;
+	}
+
+	private static function printCustomCliWorkerLine($proto, $user, $name, $listen, $count, $status='[OK]'){
+		$proto = (string)$proto;
+		$user = (string)$user;
+		$name = (string)$name;
+		$listen = (string)$listen;
+		$count = (string)$count;
+		$status = (string)$status;
+		echo str_pad($proto, 8) . str_pad($user, 16) . str_pad($name, 16) . str_pad($listen, 23) . str_pad($count, 13) . $status . PHP_EOL;
+	}
+
+	private static function printCustomCliWorkers($start_app, $workerConfig, $processConfig){
+		$user = static::currentCliUser();
+		if($start_app && $workerConfig){
+			$name = $workerConfig['name'] ?? 'RC_workerman';
+			$listen = $workerConfig['listen'] ?? 'none';
+			$proto = $workerConfig['transport'] ?? 'tcp';
+			$count = $workerConfig['count'] ?? cpu_count();
+			static::printCustomCliWorkerLine($proto, $user, $name, $listen, $count);
+		}
+		foreach(($processConfig ?? []) as $proc_name => $config){
+			if(!is_array($config) || !isset($config['handler'])){
+				continue;
+			}
+			$name = $config['name'] ?? $proc_name;
+			$listen = $config['listen'] ?? 'none';
+			$proto = $config['transport'] ?? 'tcp';
+			$count = $config['count'] ?? 1;
+			static::printCustomCliWorkerLine($proto, $user, $name, $listen, $count);
+		}
+		echo str_repeat('-', 96) . PHP_EOL;
+	}
+
+	private static function prepareWorkermanCliOutput($start_app, $workerConfig, $processConfig){
+		if(!static::shouldPrintCustomCliBanner()){
+			return;
+		}
+		global $argv;
+		if(!in_array('-q', $argv, true)){
+			$argv[] = '-q';
+		}
+		static::printCustomCliBanner();
+		static::printCustomCliWorkers($start_app, $workerConfig, $processConfig);
+	}
+
 	
 	public static function stopMaster(){
 		if(isset(static::$_worker)){
@@ -859,6 +948,7 @@ class worker{
 			if(!$config){
 				exit("\033[31;40mno workerman config found!\033[0m\n");
 			}
+			$display_worker_config = $config;
 			static::$_maxRequestCount = $config['max_request'] ?? static::$_maxRequestCount;
 			static::ensureConfigFileDirs($config, ['pid_file', 'log_file', 'status_file', 'stdout_file']);
 			Workerman::$onMasterReload = function(){
@@ -946,9 +1036,9 @@ class worker{
 			if(Config::get('queue','enable')){
 				$process_config = array_merge($process_config, Config::get('queue','consumer_process') ?? []);
 			}
-			foreach ($process_config as $proc_name => $config) {
-				if (isset($config['handler'])) {
-					$processworker = new Workerman($config['listen'] ?? null, $config['context'] ?? []);
+			foreach ($process_config as $proc_name => $proc_config) {
+				if (isset($proc_config['handler'])) {
+					$processworker = new Workerman($proc_config['listen'] ?? null, $proc_config['context'] ?? []);
 					$property_map = [
 				        'count',
 				        'user',
@@ -960,34 +1050,34 @@ class worker{
 				    ];
 				    $processworker->name = $proc_name;
 				    foreach ($property_map as $property) {
-				        if (isset($config[$property])) {
-				            $processworker->$property = $config[$property];
+				        if (isset($proc_config[$property])) {
+				            $processworker->$property = $proc_config[$property];
 				        }
 				    }
-				    if(isset($config['ssl']) && $config['ssl']===true){
+				    if(isset($proc_config['ssl']) && $proc_config['ssl']===true){
 				    	$processworker->transport = 'ssl';
 				    }
-				    if(!class_exists($config['handler'])){
-				    	$class_file = BASE_PATH.'/support/process/'.$config['handler'].'.php';
-					    $class = "support\\process\\".$config['handler'];
+				    if(!class_exists($proc_config['handler'])){
+				    	$class_file = BASE_PATH.'/support/process/'.$proc_config['handler'].'.php';
+					    $class = "support\\process\\".$proc_config['handler'];
 					    if(!Container::loadClass($class_file,$class)){
 			                exit("\033[31;40mprocess error: class {$class} not exists!\033[0m\n");
 			    		}
 				    }else{
-				    	$class = $config['handler'];
+				    	$class = $proc_config['handler'];
 				    }
 				   
-				    $processworker->onWorkerStart = function ($processworker) use ($worker,$config,$class) {
-				    	foreach(($config['bootstrap'] ?? []) as $bootstrap){
+				    $processworker->onWorkerStart = function ($processworker) use ($worker,$proc_config,$class) {
+				    	foreach(($proc_config['bootstrap'] ?? []) as $bootstrap){
 							$bootstrap::start();
 						}
-						foreach (($config['autoload'] ?? []) as $file) {
+						foreach (($proc_config['autoload'] ?? []) as $file) {
 					        include_once $file;
 					    }
-					    if ($timezone = $config['default_timezone'] ?? Config::get('app','default_timezone')) {
+					    if ($timezone = $proc_config['default_timezone'] ?? Config::get('app','default_timezone')) {
 						    \date_default_timezone_set($timezone);
 						}
-			    		$instance = Container::make($class, array_merge(['type'=>'workerman','worker'=>$processworker,'timer'=>Timer::class],$config['constructor'] ?? []));
+			    		$instance = Container::make($class, array_merge(['type'=>'workerman','worker'=>$processworker,'timer'=>Timer::class],$proc_config['constructor'] ?? []));
 			    		worker_bind($processworker, $instance);
 				    };
 				}
@@ -996,6 +1086,7 @@ class worker{
 				Controller::warmupStaticPreload();
 			}
 			Stopwatch::$_framework = stopwatch('__frame__');
+			static::prepareWorkermanCliOutput($start_app, $display_worker_config, $process_config);
 			Workerman::runAll();
 		}
 	}

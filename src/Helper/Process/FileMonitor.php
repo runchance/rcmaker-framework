@@ -113,7 +113,15 @@ class FileMonitor
                 }
                 echo $file . " update and reload\n";
                 // send SIGUSR1 signal to master process for reload
-                posix_kill(posix_getppid(), \SIGUSR1);
+                if (DIRECTORY_SEPARATOR === '/' && function_exists('posix_kill') && function_exists('posix_getppid')) {
+                    \posix_kill(\posix_getppid(), \SIGUSR1);
+                } else {
+                    if (function_exists('opcache_invalidate')) {
+                        opcache_invalidate($file, true);
+                    }
+                    $last_mtime = $file->getMTime();
+                    exit(0);
+                }
                 if (function_exists('opcache_invalidate')) {
                     opcache_invalidate($file,true);
                 }

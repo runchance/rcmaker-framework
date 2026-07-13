@@ -420,7 +420,7 @@ class Controller{
 			$response->bad($request,'404');
 			return null;
 		}
-		if(!self::isPathInBase($appdir, Config::get('app','apps_path') ?? BASE_PATH.'/apps')){
+		if(!is_phar() && !self::isPathInBase($appdir, Config::get('app','apps_path') ?? BASE_PATH.'/apps')){
 			$response->bad($request,'404');
 			return null;
 		}
@@ -555,7 +555,7 @@ class Controller{
 		if (false === $file || false === \is_file($file)) {
             return false;
         }
-		if (!self::isPathInBase($file, $document_root)) {
+		if (!is_phar() && !self::isPathInBase($file, $document_root)) {
             $response->bad($request,'400');
             return true;
         }

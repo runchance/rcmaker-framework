@@ -119,7 +119,7 @@ class Response{
 			    };
 			    $_client->connect();
 			    if($_pingTimer===null){
-			    	$_pingTimer = \Workerman\Lib\Timer::add(25, function() use ($_client){
+			    	$_pingTimer = \Workerman\Timer::add(25, function() use ($_client){
 			    		$_client->send(json_encode(['type'=>'ping','data'=>'']));
 			    	});
 			    }

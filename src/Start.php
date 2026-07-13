@@ -800,7 +800,7 @@ function base_path(){
 }
 
 function phar_path(){
-    return is_phar() ? dirname(Phar::running(false)) : BASE_PATH;
+    return is_phar() ? dirname(realpath($_SERVER['SCRIPT_FILENAME'])) : BASE_PATH;
 }
 
 function runtime_path(){

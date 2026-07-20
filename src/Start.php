@@ -160,17 +160,15 @@ function qrcode($request,$text,$format = 'png',$outfile = false, $level = 0, $si
 }
 function setcookies($request,$keyvalue = [], $expires = 0, $path = '', $domain = '', $secure = false, $http_only = false){
     $RCresponse = $request->RCresponse;
-    $id = $RCresponse->id();
-    
     $frame = $RCresponse::$_frame;
     $return = true;
     if($frame=='workerman' || $frame=='swoole'){
           $maxAge = ($expires === 0 || $expires === null) ? null : $expires;
-        if($frame=='workerman'){
-           $response = new ResponseObj($request);
-        }else{
-           $response =  $RCresponse::$_connection['id_'.$id];
-        }
+		if($frame=='workerman'){
+		   $response = new ResponseObj($request);
+		}else{
+		   $response = $RCresponse->getConnection();
+		}
         if($response===null){
             return false;
         }

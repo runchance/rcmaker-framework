@@ -16,11 +16,13 @@ use RC\Stopwatch;
 class worker{
 	protected static $_frame = null;
 	protected static $_worker = null;
-	protected static $_request = null;
 	protected static $_config = null;
-	protected static $_connection = null;
+	protected static $_requests = [];
+	protected static $_responses = [];
 	protected static $_gracefulStopTimer = null;
 	protected static $_maxRequestCount = 1000000;
+	protected static $_activeRequestCount = 0;
+	protected static $_restartPending = false;
 	protected static $_pid = null;
 	protected static $_count = 0;
 	public static $_swoole_table = null;
@@ -53,11 +55,103 @@ class worker{
 	    'bootstrap',
 	    'constructor',
 	    'autoload',
-	    'default_timezone'
+	    'default_timezone',
+	    'type',
+	    'memory_limit'
 	];
 
 	public static function getWorker(){
 		return static::$_worker;
+	}
+
+	public static function isAppProcessConfig($config):bool{
+		return is_array($config) && strtolower(trim((string)($config['type'] ?? ''))) === 'app';
+	}
+
+	private static function hasAppProcess($processConfig):bool{
+		if(!is_array($processConfig)){
+			return false;
+		}
+		foreach($processConfig as $config){
+			if(static::isAppProcessConfig($config)){
+				return true;
+			}
+		}
+		return false;
+	}
+
+	public static function mergeAppProcessConfig($frame, array $processConfig = [], $reload = false):array{
+		$configName = $frame === 'swoole' ? 'swoole' : 'worker';
+		if($reload){
+			Config::get('app', null, true);
+		}
+		$baseConfig = Config::get($configName, null, (bool)$reload) ?: [];
+		$overrides = $processConfig;
+		unset($overrides['type'], $overrides['handler']);
+		return array_replace($baseConfig, $overrides);
+	}
+
+	private static function bootApplicationRuntime($worker, array $runtimeConfig, array $processConfig = []):void{
+		static::$_worker = $worker;
+		Config::get('app', null, true);
+		$errorTypes = Config::get('app','error_types') ?? E_ALL &~E_NOTICE &~E_STRICT &~E_DEPRECATED;
+		\error_reporting($errorTypes);
+		\set_error_handler(function ($level, $message, $file = '', $line = 0) use ($errorTypes) {
+			if ($errorTypes & $level) {
+				throw new \ErrorException($message, 0, $level, $file, $line);
+			}
+		});
+		if(isset($processConfig['memory_limit'])){
+			\ini_set('memory_limit', (string)$processConfig['memory_limit']);
+		}
+
+		$autoloadFiles = array_values(array_unique(array_merge(
+			Config::get('autoload') ?? [],
+			$processConfig['autoload'] ?? []
+		)));
+		foreach($autoloadFiles as $file){
+			include_once $file;
+		}
+
+		$bootstraps = array_values(array_unique(array_merge(
+			Config::get('bootstrap') ?? [],
+			$processConfig['bootstrap'] ?? []
+		)));
+		foreach($bootstraps as $className){
+			$className::start($worker);
+		}
+
+		if($timezone = $processConfig['default_timezone'] ?? Config::get('app','default_timezone')){
+			\date_default_timezone_set($timezone);
+		}
+		Middleware::load(Config::get('middleware', null, true) ?? []);
+		static::$_maxRequestCount = max(1, (int)($runtimeConfig['max_request'] ?? static::$_maxRequestCount));
+		if(Config::get('app','count') !== true){
+			Stopwatch::$_framework = null;
+		}
+	}
+
+	public static function configureWorkermanAppWorker($worker, array $processConfig = []):void{
+		$runtimeConfig = static::mergeAppProcessConfig('workerman', $processConfig);
+		$worker->onWorkerStart = function($worker) use (&$runtimeConfig, $processConfig){
+			$runtimeConfig = static::mergeAppProcessConfig('workerman', $processConfig, true);
+			static::bootApplicationRuntime($worker, $runtimeConfig, $processConfig);
+			\register_shutdown_function(function ($startTime) {
+				if(\time() - $startTime <= 1){
+					\sleep(1);
+				}
+			}, \time());
+			$worker->onMessage = function($connection, $request) use (&$runtimeConfig) {
+				static::onMessage($connection, $request, $runtimeConfig);
+			};
+			$onClose = $worker->onClose;
+			$worker->onClose = function($connection) use ($onClose) {
+				static::onClose($connection);
+				if($onClose){
+					\call_user_func($onClose, $connection);
+				}
+			};
+		};
 	}
 
 	private static function ensureDirectory($dir){
@@ -214,7 +308,7 @@ class worker{
 			static::printCustomCliWorkerLine($proto, $user, $name, $listen, $count);
 		}
 		foreach(($processConfig ?? []) as $proc_name => $config){
-			if(!is_array($config) || !isset($config['handler'])){
+			if(!is_array($config) || (!isset($config['handler']) && !static::isAppProcessConfig($config))){
 				continue;
 			}
 			$name = $config['name'] ?? $proc_name;
@@ -264,35 +358,75 @@ class worker{
                     Workerman::stopAll();
                 }
             });
-        }
+		}
+	}
+	private static function releaseConnection($id):void{
+		if($id === null){
+			return;
+		}
+		unset(static::$_requests[$id], static::$_responses[$id]);
+	}
+	public static function onClose($connection):void{
+		$id = self::$_frame=='workerman' ? ($connection->id ?? null) : ($connection->fd ?? null);
+		static::releaseConnection($id);
+	}
+	protected static function createRequestScope($id):array{
+		if(self::$_frame === 'swoole'){
+			return [new Request($id), new Response($id)];
+		}
+		return [
+			static::$_requests[$id] ??= new Request($id),
+			static::$_responses[$id] ??= new Response($id),
+		];
+	}
+	protected static function finishRequest():void{
+		static::$_activeRequestCount = max(0, static::$_activeRequestCount - 1);
+		if(self::$_frame !== 'swoole' || !static::$_restartPending || static::$_activeRequestCount !== 0){
+			return;
+		}
+		static::$_restartPending = false;
+		if(is_object(static::$_worker) && method_exists(static::$_worker, 'shutdown')){
+			$worker = static::$_worker;
+			if(class_exists('\Swoole\Timer')){
+				\Swoole\Timer::after(1, function() use ($worker){
+					$worker->shutdown();
+				});
+				return;
+			}
+			$worker->shutdown();
+		}
 	}
 	public static function onMessage($connection,$request,$config){
-		static $request_count = 0; static $requests; static $responses; 
+		static $request_count = 0;
+		static::$_activeRequestCount++;
 		if (++$request_count > static::$_maxRequestCount) {
 			if(self::$_frame=='workerman'){
 	            static::tryToGracefulExit();
-	            $request_count=0;
 	        	echo 'Request Count > '.static::$_maxRequestCount.' reload now'."\n";
 	        }
+			if(self::$_frame=='swoole' && !empty($config['coroutine'])){
+				static::$_restartPending = true;
+			}
+			$request_count=0;
         }
         $id = self::$_frame=='workerman' ? $connection->id : $connection->fd;
-        $requests[$id] = $requests[$id] ?? new Request($id);
-        $responses[$id] = $responses[$id] ?? new Response($id);
+		list($RCrequest, $RCresponse) = static::createRequestScope($id);
         try {
-            $requests[$id]->set($request,$id,$responses[$id]);
-           	$responses[$id]->set($connection,$id,$requests[$id]);
-            Controller::call($requests[$id],$responses[$id],$config);
+			$RCrequest->set($request,$id,$RCresponse);
+		   	$RCresponse->set($connection,$id,$RCrequest);
+			Controller::call($RCrequest,$RCresponse,$config);
         } catch (\Throwable $e){
-        	$render = Controller::exceptionResponse($e,$requests[$id],$responses[$id]);
-        	if(is_array($render)){
-        		list($code,$headers,$message) = $render;
-        		$responses[$id]->bad($requests[$id],$code,$message);
-        	}else{
-        		$responses[$id]->bad($requests[$id],500,$e->getMessage());
-        	}
+			$render = Controller::exceptionResponse($e,$RCrequest,$RCresponse);
+			if(is_array($render)){
+				list($code,$headers,$message) = $render;
+				$RCresponse->bad($RCrequest,$code,$message);
+			}else{
+				$RCresponse->bad($RCrequest,500,$e->getMessage());
+			}
 		} finally {
-			$requests[$id]->unset($id);
-			$responses[$id]->unset($id);
+			$RCrequest->unset($id);
+			$RCresponse->unset($id);
+			static::finishRequest();
         }
         return null;
     }
@@ -397,7 +531,7 @@ class worker{
 				$processes = array();
 				$servers = array();
 				$process_config = Config::get('process', null, null, []);
-				if(Config::get('app','cli_log') && $start_app){
+				if(Config::get('app','cli_log') && ($start_app || static::hasAppProcess($process_config))){
 					static::$_swoole_table = new \Swoole\Table($config['table_size']);
 					static::$_swoole_table->column('app', \Swoole\Table::TYPE_STRING,30);
 					static::$_swoole_table->column('path', \Swoole\Table::TYPE_STRING,250);
@@ -423,6 +557,9 @@ class worker{
 			    }
 
 				foreach ($process_config as $proc_name => $pconfig) {
+					if(static::isAppProcessConfig($pconfig)){
+						exit("\033[31;40mprocess error: app process {$proc_name} requires swoole.coroutine=true for independent workers!\033[0m\n");
+					}
 					if(!isset($pconfig['handler'])){
 						exit("\033[31;40mprocess error: process handler not exists!\033[0m\n");
 					}
@@ -622,6 +759,9 @@ class worker{
 				$server->on('Request', function ($request, $response) use ($config) {
 					self::onMessage($response,$request,$config);
 				});
+				$server->on('Close', function ($server, $fd) {
+					self::releaseConnection($fd);
+				});
 				$server->on('Message', function ($request, $response){
 					return null;
 				});
@@ -630,7 +770,7 @@ class worker{
 	        		return false;
 				});
 
-				if(static::shouldWarmupStaticPreload($start_app)){
+				if(static::shouldWarmupStaticPreload($start_app || static::hasAppProcess($process_config))){
 					Controller::warmupStaticPreload();
 				}
 
@@ -641,34 +781,13 @@ class worker{
 				$process_count = 0;
 				$process = $start_app ? [
 					['protocol'=>'http','name'=>$config['name'] ?? 'RC_Swoole','listen'=>$config['listen'],'port'=>$config['port'],'workers'=>$config['worker_num'],'ssl'=>$config['ssl'],'callback'=>function($server,$workid) use (&$config, &$process_count){
-						Config::get('app',null,true);
-						$config = Config::get('swoole',null,true);
-						\error_reporting(Config::get('app','error_types') ?? E_ALL &~E_NOTICE &~E_STRICT &~E_DEPRECATED);
-						\set_error_handler(function ($level, $message, $file = '', $line = 0) {
-					        if (\error_reporting(Config::get('app','error_types') ?? E_ALL &~E_NOTICE &~E_STRICT &~E_DEPRECATED) & $level) {
-					            throw new \ErrorException($message, 0, $level, $file, $line);
-					        }
-					    });
-					    foreach ((Config::get('autoload') ?? []) as $file) {
-					        include_once $file;
-					    }
-					    foreach ((Config::get('bootstrap') ?? []) as $class_name) {
-					        $class_name::start($server);
-					    }
-					    if ($timezone = Config::get('app','default_timezone')) {
-						    \date_default_timezone_set($timezone);
-						}
-				
-						Middleware::load(Config::get('middleware',null,true) ?? []);
+						$config = static::mergeAppProcessConfig('swoole', [], true);
+						static::bootApplicationRuntime($server, $config);
 						\register_shutdown_function(function ($start_time) {
 					        if (time() - $start_time <= 1) {
 					            sleep(1);
 					        }
 					    }, time());
-					    
-					    if(Config::get('app','count')!==true){
-					    	Stopwatch::$_framework = null;
-					    }
 						
 						$server->set([
 						    'open_http_protocol' => true,
@@ -710,7 +829,7 @@ class worker{
 				$processes = array();
 				$servers = array();
 				$process_config = Config::get('process', null, null, []);
-				if(Config::get('app','cli_log') && $start_app){
+				if(Config::get('app','cli_log') && ($start_app || static::hasAppProcess($process_config))){
 					static::$_swoole_table = new \Swoole\Table($config['table_size']);
 					static::$_swoole_table->column('app', \Swoole\Table::TYPE_STRING,30);
 					static::$_swoole_table->column('path', \Swoole\Table::TYPE_STRING,250);
@@ -735,18 +854,19 @@ class worker{
 				     $process_config = array_merge($process_config, Config::get('queue','consumer_process') ?? []);
 			    }
 
-				if(static::shouldWarmupStaticPreload($start_app)){
+				if(static::shouldWarmupStaticPreload($start_app || static::hasAppProcess($process_config))){
 					Controller::warmupStaticPreload();
 				}
 
 	
 
 				foreach ($process_config as $proc_name => $pconfig) {
-					if(!isset($pconfig['handler'])){
+					$isAppProcess = static::isAppProcessConfig($pconfig);
+					if(!$isAppProcess && !isset($pconfig['handler'])){
 						exit("\033[31;40mprocess error: process handler not exists!\033[0m\n");
 					}
-					$class = static::loadProcessClass($pconfig['handler']);
-					if($class === null){
+					$class = $isAppProcess ? null : static::loadProcessClass($pconfig['handler']);
+					if(!$isAppProcess && $class === null){
 						exit("\033[31;40mprocess error: class {$pconfig['handler']} not exists!\033[0m\n");
 					}
 					$workmode = null;
@@ -758,6 +878,9 @@ class worker{
 							exit("\033[31;40mprocess error: listen {$pconfig['listen']} invalid!\033[0m\n");
 						}
 						list($scheme, $address, $port) = $listenConfig;
+						if($isAppProcess && !in_array($scheme, ['http', 'https'], true)){
+							exit("\033[31;40mprocess error: app process {$proc_name} only supports http or https listen!\033[0m\n");
+						}
 						$protocol = null;
 						switch($scheme){
 							case "websocket": $workmode='websocket';  break;
@@ -787,10 +910,12 @@ class worker{
 								}];
 							break;
 							case 'websocket':case 'http': case 'tcp': case 'https': case 'text':
-								$process[] = ['protocol'=>$workmode,'name'=>$proc_name,'listen'=>$address,'port'=>$port,'workers'=>$pconfig['count'] ?? 1,'ssl'=>$pconfig['ssl'] ?? false,'callback'=>function($server,$workid) use ($pconfig,$class,$workmode){
-									if(isset($pconfig['context']['ssl']) && $pconfig['context']['ssl']){
+								$workerCount = $isAppProcess ? ($pconfig['count'] ?? $pconfig['worker_num'] ?? $config['worker_num'] ?? 1) : ($pconfig['count'] ?? 1);
+								$process[] = ['protocol'=>$workmode,'name'=>$proc_name,'listen'=>$address,'port'=>$port,'workers'=>max(1, (int)$workerCount),'ssl'=>$pconfig['ssl'] ?? ($scheme === 'https'),'app'=>$isAppProcess,'callback'=>function($server,$workid) use ($pconfig,$class,$workmode,$isAppProcess){
+									$serverConfig = $isAppProcess ? static::mergeAppProcessConfig('swoole', $pconfig, true) : $pconfig;
+									if(isset($serverConfig['context']['ssl']) && $serverConfig['context']['ssl']){
 										$ssl = [];
-										foreach($pconfig['context']['ssl'] as $key=>$val){
+										foreach($serverConfig['context']['ssl'] as $key=>$val){
 											if(isset(static::$config_ssl_map[$key])){
 												$ssl[static::$config_ssl_map[$key]] = $val;
 											}else{
@@ -805,13 +930,13 @@ class worker{
 									
 
 
-									foreach($pconfig as $key=>$conf){
+									foreach($serverConfig as $key=>$conf){
 										$orgikey = $key;
 										$key = static::swooleConfigKey($key);
 										if(!in_array($key,static::$config_exclude) && $key){
 											if($key!=='worker_num'){
 												$server->set([
-												    $key => $pconfig[$orgikey]
+												    $key => $serverConfig[$orgikey]
 												]);
 											}
 											
@@ -827,13 +952,19 @@ class worker{
 									}
 
 
+									if($isAppProcess){
+										$server->set(['open_http_protocol'=>true, 'open_http2_protocol'=>true]);
+										static::bootApplicationRuntime($server, $serverConfig, $pconfig);
+										return function($request, $response) use ($serverConfig){
+											static::onMessage($response, $request, $serverConfig);
+										};
+									}
 									foreach(($pconfig['bootstrap'] ?? []) as $bootstrap){
 										$bootstrap::start($server);
 									}
 									foreach (($pconfig['autoload'] ?? []) as $file) {
 								        include_once $file;
 								    }
-								
 									if ($timezone = $pconfig['default_timezone'] ?? Config::get('app','default_timezone')) {
 									    \date_default_timezone_set($timezone);
 									}
@@ -928,6 +1059,10 @@ class worker{
 									$instance = $proc['callback']($workers,$workid);
 									if($instance){
 										$workers->handle('/', function ($request, $response) use ($workid,$instance,$proc) {
+											if($instance instanceof \Closure){
+												$instance($request, $response);
+												return;
+											}
 											$instance->handle($request, $response);
 									    });
 									}
@@ -1002,39 +1137,7 @@ class worker{
 				$worker->onWorkerReload = function($worker){
 					
 				};
-				$worker->onWorkerStart = function ($worker) use (&$config){
-				    Config::get('app',null,true);
-				    $config = Config::get('worker',null,true);
-					\error_reporting(Config::get('app','error_types') ?? E_ALL &~E_NOTICE &~E_STRICT &~E_DEPRECATED);
-					\set_error_handler(function ($level, $message, $file = '', $line = 0) {
-				        if (\error_reporting(Config::get('app','error_types') ?? E_ALL &~E_NOTICE &~E_STRICT &~E_DEPRECATED) & $level) {
-				            throw new \ErrorException($message, 0, $level, $file, $line);
-				        }
-				    });
-				    foreach ((Config::get('autoload') ?? []) as $file) {
-				        include_once $file;
-				    }
-				    foreach ((Config::get('bootstrap') ?? []) as $class_name) {
-				        $class_name::start($worker);
-				    }
-				    if ($timezone = Config::get('app','default_timezone')) {
-					    \date_default_timezone_set($timezone);
-					}
-					Middleware::load(Config::get('middleware',null,true) ?? []);
-					\register_shutdown_function(function ($start_time) {
-				        if (time() - $start_time <= 1) {
-				            sleep(1);
-				        }
-				    }, time());
-				    
-				    if(Config::get('app','count')!==true){
-				    	Stopwatch::$_framework = null;
-				    }
-				    $worker->onMessage = function($connection, $request) use ($config) {
-				    	self::onMessage($connection, $request, $config);
-				    };
-				
-				};
+				static::configureWorkermanAppWorker($worker);
 			}
 			
 
@@ -1053,6 +1156,24 @@ class worker{
 				$process_config = array_merge($process_config, Config::get('queue','consumer_process') ?? []);
 			}
 			foreach ($process_config as $proc_name => $proc_config) {
+				if(static::isAppProcessConfig($proc_config)){
+					$proc_config['name'] = $proc_config['name'] ?? $proc_name;
+					$appConfig = static::mergeAppProcessConfig('workerman', $proc_config);
+					if(empty($appConfig['listen'])){
+						exit("\033[31;40mprocess error: app process {$proc_name} listen not exists!\033[0m\n");
+					}
+					$processworker = new Workerman($appConfig['listen'], $appConfig['context'] ?? []);
+					foreach(['name', 'count', 'user', 'group', 'reloadable', 'reusePort', 'transport', 'protocol'] as $property){
+						if(isset($appConfig[$property])){
+							$processworker->$property = $appConfig[$property];
+						}
+					}
+					if(($appConfig['ssl'] ?? false) === true){
+						$processworker->transport = 'ssl';
+					}
+					static::configureWorkermanAppWorker($processworker, $proc_config);
+					continue;
+				}
 				if (isset($proc_config['handler'])) {
 					$processworker = new Workerman($proc_config['listen'] ?? null, $proc_config['context'] ?? []);
 					$property_map = [
@@ -1098,7 +1219,7 @@ class worker{
 				    };
 				}
 			}
-			if(static::shouldWarmupStaticPreload($start_app)){
+			if(static::shouldWarmupStaticPreload($start_app || static::hasAppProcess($process_config))){
 				Controller::warmupStaticPreload();
 			}
 			Stopwatch::$_framework = stopwatch('__frame__');

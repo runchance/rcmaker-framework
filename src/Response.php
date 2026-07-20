@@ -10,10 +10,11 @@ use RC\Helper;
 use RC\Helper\view\Raw;
 class Response{
 	public static $_frame = null;
-	public static $_connection = null;
 	public static $_client = null;
 	public static $_log_count = 0;
+	protected static $_cliLogEnabled = null;
 	protected $id = null;
+	protected $connection = null;
 	protected $_cookies = null;
 	public $findStaticFile = false;
 	public $staticFile = null;
@@ -32,17 +33,19 @@ class Response{
     }
 
     public function set($connection,$id,$RCrequest):void{
-    	static::$_connection['id_'.$this->id] = $connection;
-    	static::$_frame = static::$_frame ?? Config::get('app','cli_frame');
-    	$this->RCrequest = $RCrequest;
+		$this->connection = $connection;
+		static::$_frame = static::$_frame ?? Config::get('app','cli_frame');
+		$this->RCrequest = $RCrequest;
     }
 
 	public function unset($id){
-		if(isset(static::$_connection['id_'.$this->id])){
-			unset(static::$_connection['id_'.$this->id]);
-		}
+		$this->connection = null;
 		$this->RCrequest = null;
 		$this->_cookies = null;
+	}
+
+	public function getConnection(){
+		return $this->connection;
 	}
 
 	protected static function headerParts($header){
@@ -51,6 +54,30 @@ class Response{
 			return null;
 		}
 		return [$headerformat[0], trim($headerformat[1])];
+	}
+
+	protected static function shouldKeepAlive($request):bool{
+		if(!$request){
+			return false;
+		}
+		$keepAlive = false;
+		$connection = strtolower(trim((string)$request->header('connection', '')));
+		if($connection !== ''){
+			foreach(explode(',', $connection) as $token){
+				$token = trim($token);
+				if($token === 'close'){
+					return false;
+				}
+				if($token === 'keep-alive'){
+					$keepAlive = true;
+				}
+			}
+		}
+		if($keepAlive){
+			return true;
+		}
+		$protocol = strtoupper(trim((string)$request->protocol()));
+		return $protocol === 'HTTP/1.1' || $protocol === '1.1';
 	}
 
 	public function setWorkermanCookie($cookies){
@@ -82,20 +109,16 @@ class Response{
 			}
 			$this->_cookies = null;
 		}
-		$keep_alive = $request ? $request->header('connection') : null;
-		if (($keep_alive === null && $request && $request->protocolVersion() === '1.1')
-            || $keep_alive === 'keep-alive' || $keep_alive === 'Keep-Alive'
-        ) {
-        	
-            static::$_connection['id_'.$this->id]->send($response);
+		if(static::shouldKeepAlive($request)){
+			$this->connection->send($response);
             return;
         }
-        static::$_connection['id_'.$this->id]->close($response);
+		$this->connection->close($response);
         return;
     }
     private function log_list(){
-    	static $_client; static $_pingTimer;
-    	$cli_log = Config::get('app','cli_log');
+		static $_client; static $_pingTimer;
+		$cli_log = static::$_cliLogEnabled ??= (bool)Config::get('app','cli_log');
     	if($cli_log){
     		$log = [
 				'app'=>$this->RCrequest->app['app'] ?? '__static__',
@@ -143,7 +166,7 @@ class Response{
 	    	$status = explode(" ",$resps[0]);
 	    	if($status[1]!=='200'){
 	    		$this->_status = $status[1];
-	    		static::$_connection['id_'.$this->id]->status($status[1]);
+	    		$this->connection->status($status[1]);
 	    	}
 	    	$headers = array_slice($resps, 1);
 	    	foreach($headers as $key => $header){
@@ -159,7 +182,7 @@ class Response{
 	    				$hasContentType = true;
 	    			}
 	    			if($headerformat[0]!=='Content-Length'){
-    					static::$_connection['id_'.$this->id]->header($headerformat[0],trim($headerformat[1]));
+					$this->connection->header($headerformat[0],trim($headerformat[1]));
     				}
 	    		}else{
 	    			break;
@@ -170,14 +193,14 @@ class Response{
 	    	}
     	}
 		if(!$hasContentType && !$this->findStaticFile){
-			static::$_connection['id_'.$this->id]->header('Content-Type','text/html;charset=UTF-8');
+			$this->connection->header('Content-Type','text/html;charset=UTF-8');
 		}
 
     	if(!$this->findStaticFile){
-    		static::$_connection['id_'.$this->id]->end($response);
+	    	$this->connection->end($response);
     		return;
     	}
-    	static::$_connection['id_'.$this->id]->sendfile($this->staticFile);
+	    	$this->connection->sendfile($this->staticFile);
     }
     
 	public function response($app,$callback,$request){
@@ -246,7 +269,7 @@ class Response{
 		}
 		if(static::$_frame=='swoole'){
 			$this->log_list();
-			static::$_connection['id_'.$this->id]->status($status);
+			$this->connection->status($status);
 			if(is_file($badfile)){
 				\extract(['msg'=>$e]);
 				\ob_start();

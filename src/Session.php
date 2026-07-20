@@ -1,34 +1,34 @@
 <?php
 namespace RC;
 use RC\Bootstrap;
-use RC\Response;
-use RC\Request;
-use RC\Controller;
 use Workerman\Protocols\Http\Session as SessionBase;
 class Session implements Bootstrap {
 	protected static $_sessionName = 'PHPSID';
-	protected static $_data = [];
+	protected $_data = [];
 	public $session = null;
 	protected $id = null;
-	public function __construct($id)
+	protected $request = null;
+	protected $connection = null;
+	public function __construct($id,$request=null,$connection=null)
     {
         $this->id = $id;
+		$this->request = $request;
+		$this->connection = $connection;
     }
 	protected static function createSessionId(){
         return \bin2hex(\pack('d', \microtime(true)) . \pack('N', \mt_rand()));
-    }
+	}
 	private function sessionId($eng=null){
-		static $response; static $request;
 		if (!isset($this->_data['sid'])) {
 			$session_name = static::sessionName();
 			switch($eng){
 				case 'swoole':
 			
-					$sid = Request::$_request['id_'.$this->id]->cookie[$session_name] ?? null;
+					$sid = $this->request->cookie[$session_name] ?? null;
 					if ($sid === '' || $sid === null) {
 						$sid = static::createSessionId();
 				        $cookie_params = \session_get_cookie_params();
-						$conn = Response::$_connection['id_'.$this->id];
+						$conn = $this->connection;
 						if(!$conn){
 							return false;
 						}

@@ -6,9 +6,9 @@ use RC\Response;
 use RC\Helper;
 use Workerman\Protocols\Http;
 class Request{
-	public static $_request = null;
 	protected static $_frame = null;
 	protected $id = null;
+	protected $nativeRequest = null;
 	protected $_get = array();
 	protected $_attributes = [];
 	public $app = [null,null,null];
@@ -53,15 +53,13 @@ class Request{
 
     public function set($request = null,$id = null,$RCresponse = null){
 		static::$_frame = static::$_frame ?? Config::get('app','cli_frame');
-		static::$_request['id_'.$id] = $request;
+		$this->nativeRequest = $request;
 		$this->_attributes = [];
 		$this->RCresponse = $RCresponse;
 	}
 
 	public function unset($id){
-		if(isset(static::$_request['id_'.$id])){
-			unset(static::$_request['id_'.$id]);
-		}
+		$this->nativeRequest = null;
 		$this->_attributes = [];
 		$this->RCresponse = null;
 	}
@@ -112,10 +110,10 @@ class Request{
 			return $ip; 
 		}
 		if($frame=='workerman'){
-			$ip = $this->RCresponse::$_connection['id_'.$this->id]->getRemoteIp();
-			return $ip;
+			$connection = $this->RCresponse ? $this->RCresponse->getConnection() : null;
+			return $connection ? $connection->getRemoteIp() : null;
 		}
-		$req = static::$_request['id_'.$this->id];
+		$req = $this->nativeRequest;
 		if($frame=='swoole' && $req){
 			$ip = $req->server['remote_addr'];
 			return $ip;
@@ -132,7 +130,7 @@ class Request{
 				$files = isset($_FILES[$name]) ? $_FILES[$name] : null;
 			}
 		}else{
-			$req = static::$_request['id_'.$this->id];
+			$req = $this->nativeRequest;
 		}
 		
 		if($frame=='workerman' && $req){
@@ -207,7 +205,7 @@ class Request{
 		if(!IS_CLI || !$frame){
 			return getenv('SERVER_PROTOCOL'); 
 		}
-		$req = static::$_request['id_'.$this->id];
+		$req = $this->nativeRequest;
 		if($frame=='workerman' && $req){
 			$protocol = 'HTTP/' . $req->protocolVersion();
 			return $protocol;
@@ -229,7 +227,7 @@ class Request{
 			$_GET = array_merge($get,$_GET);
 			return true;
 		}
-		$req = static::$_request['id_'.$this->id];
+		$req = $this->nativeRequest;
 		$this->_get = $get;
 		return false;
 	}
@@ -239,7 +237,7 @@ class Request{
 		if(!IS_CLI || !$frame){
 			return file_get_contents('php://input');
 		}
-		$req = static::$_request['id_'.$this->id];
+		$req = $this->nativeRequest;
 		if($frame=='workerman' && $req){
 			return $req->rawBody();
 		}
@@ -253,7 +251,7 @@ class Request{
 		if(!IS_CLI || !$frame){
 			return null;
 		}
-		$req = static::$_request['id_'.$this->id];
+		$req = $this->nativeRequest;
 		if($req){
 			if(is_callable([$req,$function])){
 				return $req->{$function}(...$args);
@@ -275,13 +273,14 @@ class Request{
 			$session = new Session($this->id);
 			return $session->session();
 		}
-		$req = static::$_request['id_'.$this->id];
+		$req = $this->nativeRequest;
 		if($frame=='workerman' && $req){
 			Http::sessionName(Session::sessionName());
 			return $req->session();
 		}
 		if($frame=='swoole' && $req){
-			$session = new Session($this->id);
+			$connection = $this->RCresponse ? $this->RCresponse->getConnection() : null;
+			$session = new Session($this->id,$req,$connection);
 			return $session->session('swoole');
 		}
 	}
@@ -295,7 +294,7 @@ class Request{
 			}
 			return array_key_exists($var, $_COOKIE) ? $_COOKIE[$var] : ($hasDefault ? $default : '');
 		}
-		$req = static::$_request['id_'.$this->id];
+		$req = $this->nativeRequest;
 		if($frame=='workerman' && $req){
 			if(!$var){
 				return $req->cookie();
@@ -314,7 +313,7 @@ class Request{
 	}
 
 	public function getRequest(){
-		return static::$_request;
+		return $this->nativeRequest;
 	}
 	
 	public function header($var=null,$default=null,$id=null){
@@ -327,7 +326,7 @@ class Request{
 			return static::serverHeader($var, $default, $hasDefault);
 			
 		}
-		$req = static::$_request['id_'.$this->id];
+		$req = $this->nativeRequest;
 		if($frame=='workerman' && $req){
 			if(!$var){
 				return $req->header();
@@ -349,7 +348,7 @@ class Request{
 		if(!IS_CLI || !$frame){
 			return $_SERVER['REQUEST_METHOD'];
 		}
-		$req = static::$_request['id_'.$this->id];
+		$req = $this->nativeRequest;
 		if($frame=='workerman' && $req){
 			return $req->method();
 		}
@@ -370,7 +369,7 @@ class Request{
 			}
 			return isset($_SERVER['SERVER_PORT']) ? $host.":".$_SERVER['SERVER_PORT'] : $host;
 		}
-		$req = static::$_request['id_'.$this->id];
+		$req = $this->nativeRequest;
 		if($frame=='workerman' && $req){
 			return $req->host($hideport);
 		}
@@ -385,7 +384,7 @@ class Request{
 		if(!IS_CLI || !$frame){
 			return $var ? ($_GET[$var] ?? $default) : $_GET;
 		}
-		$req = static::$_request['id_'.$this->id];
+		$req = $this->nativeRequest;
 		if($frame=='workerman' && $req){
 			if(!$var){
 				return array_merge($this->_get,$req->get() ?? []);
@@ -406,7 +405,7 @@ class Request{
 		if(!IS_CLI || !$frame){
 			return $var ? ($_POST[$var] ?? $default) : $_POST;
 		}
-		$req = static::$_request['id_'.$this->id];
+		$req = $this->nativeRequest;
 		if($frame=='workerman' && $req){
 			if(!$var){
 				return $req->post();
@@ -426,7 +425,7 @@ class Request{
 		if(!IS_CLI || !$frame){
 			return parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 		}	
-		$req = static::$_request['id_'.$this->id];
+		$req = $this->nativeRequest;
 		if($frame=='workerman' && $req){
 			return $req->path();
 		}
@@ -441,7 +440,7 @@ class Request{
 		if(!IS_CLI || !$frame){
 			return parse_url($_SERVER['REQUEST_URI'], PHP_URL_QUERY);
 		}	
-		$req = static::$_request['id_'.$this->id];
+		$req = $this->nativeRequest;
 		if($frame=='workerman' && $req){
 			return $req->queryString() ?? null;
 		}

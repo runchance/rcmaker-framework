@@ -15,7 +15,38 @@ class Controller{
 	private static $_pathparse = [];
 	private static $_callbacks = [];
 	private static $_staticMemory = [];
+	private static $_appProcess = null;
+	private static $_processDefaultApp = null;
 	public static $_mb = [];
+
+	public static function setAppProcess($processName = null, $defaultApp = null){
+		$processName = trim((string)$processName);
+		self::$_appProcess = $processName === '' ? null : $processName;
+		$defaultApp = trim((string)$defaultApp);
+		self::$_processDefaultApp = $defaultApp === '' ? null : self::normalizeAppName($defaultApp);
+		if(self::$_processDefaultApp !== null){
+			$appConfigs = Config::get('app', 'app') ?? [];
+			$matchedConfig = null;
+			foreach($appConfigs as $appName=>$appConfig){
+				if(self::normalizeAppName($appName) === self::$_processDefaultApp){
+					$matchedConfig = $appConfig;
+					break;
+				}
+			}
+			$bindProcess = is_array($matchedConfig) ? trim((string)($matchedConfig['bind_process'] ?? '')) : '';
+			$bindProcess = $bindProcess === '' ? null : $bindProcess;
+			$allowed = self::$_appProcess === null
+				? ($matchedConfig === null || $bindProcess === null)
+				: ($matchedConfig !== null && $bindProcess === self::$_appProcess);
+			if(!$allowed){
+				throw new \InvalidArgumentException('default_app ' . self::$_processDefaultApp . ' is not bound to app process ' . (self::$_appProcess ?? 'main'));
+			}
+		}
+		self::$_config = [];
+		self::$_pathparse = [];
+		self::$_callbacks = [];
+		self::$_mb = [];
+	}
 	
 	private static function normalizeHost($host){
 		$host = strtolower(trim((string)$host));
@@ -247,13 +278,33 @@ class Controller{
 	}
 
 	public static function warmupStaticPreload(){
-		self::parseConfig();
-		$configs = [];
-		if(self::isStaticPreloadEnabled(self::$_config)){
-			$configs[] = self::$_config;
+		self::warmupStaticPreloadByProcess(null, false);
+	}
+
+	public static function warmupStaticPreloadForProcess($processName = null){
+		$processName = trim((string)$processName);
+		self::warmupStaticPreloadByProcess($processName === '' ? null : $processName, true);
+	}
+
+	private static function warmupStaticPreloadByProcess($processName, $processScoped){
+		$conf = Config::get('app');
+		if(!$conf){
+			throw new \Exception('config error!');
 		}
-		foreach((self::$_config['app'] ?? []) as $appconf){
-			$merged = array_merge(self::$_config, $appconf);
+		$configs = [];
+		if((!$processScoped || $processName === null) && self::isStaticPreloadEnabled($conf)){
+			$configs[] = $conf;
+		}
+		foreach(($conf['app'] ?? []) as $appconf){
+			if(!is_array($appconf)){
+				continue;
+			}
+			$bindProcess = trim((string)($appconf['bind_process'] ?? ''));
+			$bindProcess = $bindProcess === '' ? null : $bindProcess;
+			if($processScoped && $bindProcess !== $processName){
+				continue;
+			}
+			$merged = array_merge($conf, $appconf);
 			if(self::isStaticPreloadEnabled($merged)){
 				$configs[] = $merged;
 			}
@@ -373,16 +424,27 @@ class Controller{
         }
 		self::parseConfig();
 		$parseUrl = self::parseUrl($key,$request);
+		if(empty(self::$_mb['app_allowed'])){
+			$response->bad($request,'404','unkown app!');
+			return null;
+		}
 		$staticConfig = $config ?? [];
-		foreach (['document_root', 'index_default', 'enable_static_file', 'enable_static_php', 'enable_static_gzip', 'enable_static_preload', 'static_preload_extensions', 'static_preload_time_limit'] as $staticKey) {
+		foreach (['document_root', 'index_default', 'enable_static_file', 'enable_static_php', 'enable_static_gzip', 'enable_static_preload', 'static_preload_extensions', 'static_preload_time_limit', 'static_only'] as $staticKey) {
 			if (array_key_exists($staticKey, self::$_mb)) {
 				$staticConfig[$staticKey] = self::$_mb[$staticKey];
 			}
 		}
+		if(!empty($staticConfig['static_only'])){
+			$staticConfig['enable_static_php'] = false;
+		}
 		if(!empty($staticConfig['enable_static_file'])){
-			if(self::staticMode($path, $key,$staticConfig,$request,$response)){
+			if(self::staticMode(self::$_mb['static_path'] ?? $path, $key,$staticConfig,$request,$response)){
 				return null;
 			}
+		}
+		if(!empty($staticConfig['static_only'])){
+			$response->bad($request,'404');
+			return null;
 		}
 		
 		if(self::$_mb['count']){
@@ -483,7 +545,8 @@ class Controller{
          
 		$ret = Route::dispatch($request->method(), $path);
 		if(is_array($ret) && $ret[0] === Dispatcher::FOUND) { //查找全局路由
-			$app = $controller = $action = '';
+			$app = self::$_mb['app'] ?? '';
+			$controller = $action = '';
 			$handler = $ret[1]['callback'];
 			$route = $ret[1]['route'];
             $route = clone $route;
@@ -496,8 +559,19 @@ class Controller{
 	    	        	}
 	    	        }
 				}
-	            $handler = \array_values($handler);
-	            if (isset($handler[1]) && \is_string($handler[0]) && \class_exists($handler[0])) {
+			$handler = \array_values($handler);
+			if(isset($handler[1])){
+				$handlerClass = is_object($handler[0]) ? get_class($handler[0]) : $handler[0];
+				if(is_string($handlerClass)){
+					list($routeApp, $routeController) = self::parseController($handlerClass);
+					if($routeApp !== '' && self::normalizeAppName($routeApp) !== self::normalizeAppName($app)){
+						return true;
+					}
+					$controller = $routeController;
+					$action = is_string($handler[1]) ? $handler[1] : '';
+				}
+			}
+			if (isset($handler[1]) && \is_string($handler[0]) && \class_exists($handler[0])) {
 	                $handler = [Container::get($handler[0]), $handler[1]];
 	            }
 	        }
@@ -647,14 +721,31 @@ class Controller{
 			'enable_static_preload'=>$conf['enable_static_preload'] ?? false,
 			'static_preload_extensions'=>$conf['static_preload_extensions'] ?? ['css', 'js', 'html', 'htm', 'json', 'svg', 'txt', 'xml'],
 			'static_preload_time_limit'=>$conf['static_preload_time_limit'] ?? 0.5,
+			'static_only'=>$conf['static_only'] ?? false,
 			'default_app'=>self::normalizeAppName($conf['default_app'] ?? 'index'),
-			'appcount'=>isset($conf['app']) ? count($conf['app']) : 1,
+			'appcount'=>0,
 			'count'=>$conf['count'] ?? ['memory'=>true,'loadtime'=>true],
 			'app'=>[],
-			'domain_map'=>[]
+			'domain_map'=>[],
+			'foreign_apps'=>[],
+			'foreign_domain_map'=>[],
+			'app_bindings'=>[]
 		];
 		foreach(($conf['app'] ?? []) as $appname=>$appconf){
 			$appname = self::normalizeAppName($appname);
+			$bindProcess = trim((string)($appconf['bind_process'] ?? ''));
+			$bindProcess = $bindProcess === '' ? null : $bindProcess;
+			self::$_config['app_bindings'][$appname] = $bindProcess;
+			if($bindProcess !== self::$_appProcess){
+				self::$_config['foreign_apps'][$appname] = $appconf;
+				foreach(($appconf['domains'] ?? []) as $domain){
+					$domain = self::normalizeHost($domain);
+					if($domain !== ''){
+						self::$_config['foreign_domain_map'][$domain] = $appname;
+					}
+				}
+				continue;
+			}
 			if(isset($appconf['index'])){
 				$appconf['index'] = self::normalizeIndex($appconf['index']);
 			}
@@ -666,7 +757,24 @@ class Controller{
 				}
 			}
 		}
+		self::$_config['appcount'] = count(self::$_config['app']);
+		if(self::$_processDefaultApp !== null && self::isAppAllowed(self::$_processDefaultApp)){
+			self::$_config['default_app'] = self::$_processDefaultApp;
+		}elseif(!self::isAppAllowed(self::$_config['default_app']) && self::$_config['app']){
+			self::$_config['default_app'] = array_key_first(self::$_config['app']);
+		}
 		return true;
+	}
+
+	private static function isAppAllowed($app){
+		if(!is_string($app) || $app === ''){
+			return false;
+		}
+		$app = self::normalizeAppName($app);
+		if(array_key_exists($app, self::$_config['app_bindings'])){
+			return self::$_config['app_bindings'][$app] === self::$_appProcess;
+		}
+		return self::$_appProcess === null;
 	}
 
 	public static function exceptionResponse(\Throwable $e,$request,$response){
@@ -735,9 +843,12 @@ class Controller{
 		$appcount = self::$_config['appcount'];
 		$apps = self::$_config['app'] ?? [];
 		$domainMap = self::$_config['domain_map'] ?? [];
+		$foreignApps = self::$_config['foreign_apps'] ?? [];
+		$foreignDomainMap = self::$_config['foreign_domain_map'] ?? [];
 		$domainMatched = false;
-		$matchedApp = $domainMap[$host] ?? null;
+		$matchedApp = $domainMap[$host] ?? ($foreignDomainMap[$host] ?? null);
 		$matchedLength = 0;
+		$staticPath = $request->path();
 		if($config['route']){
 			if($matchedApp !== null){
 				$domainMatched = true;
@@ -745,6 +856,9 @@ class Controller{
 				$controller = $explode[0] ?? $controller;
 				$action = $explode[1] ?? $action;
 				$getParm = array_slice($explode, 2);
+			}elseif($foreignApps && ($foreignPathApp = self::matchPathApp($explode, $foreignApps)[0]) !== null){
+				$app = $foreignPathApp;
+				$controller = $action = '';
 			}elseif($appcount<=1){
 				$controller = $explode[0] ?? $controller;
 				$action = $explode[1] ?? $action;
@@ -753,6 +867,7 @@ class Controller{
 				list($matchedApp, $matchedLength) = self::matchPathApp($explode, $apps);
 				if($matchedApp !== null){
 					$app = $matchedApp;
+					$staticPath = '/' . implode('/', array_slice($explode, $matchedLength));
 					$controller = $explode[$matchedLength] ?? $controller;
 					$action = $explode[$matchedLength + 1] ?? $action;
 					$getParm = array_slice($explode, $matchedLength + 2);
@@ -770,7 +885,7 @@ class Controller{
 
 		
 		$config_map = [
-			'route','with_custom_route','index','index_default','debug','error_msg','count','document_root','enable_static_file','enable_static_php','enable_static_gzip','enable_static_preload','static_preload_extensions','static_preload_time_limit'
+			'route','with_custom_route','index','index_default','debug','error_msg','count','document_root','enable_static_file','enable_static_php','enable_static_gzip','enable_static_preload','static_preload_extensions','static_preload_time_limit','static_only'
 		];
 		$matchedApp = null;
 		$matchedAppConf = null;
@@ -827,6 +942,12 @@ class Controller{
 				}
 			}
 		}
+		$appAllowed = self::isAppAllowed($app);
+		if(!$appAllowed){
+			$app = $controller = $action = '';
+			$config['enable_static_file'] = false;
+			$config['with_custom_route'] = false;
+		}
 		$args = self::parseParams($getParm);
 		self::$_mb = array_merge([
 			'name'=>$baseAppName,
@@ -836,7 +957,9 @@ class Controller{
 			'action'=>$action,
 			'appcount'=>$appcount,
 			'appdir'=>$appdir,
-			'args'=>$args
+			'args'=>$args,
+			'app_allowed'=>$appAllowed,
+			'static_path'=>$staticPath
 		],$config);
 		self::$_pathparse[$key] = self::$_mb;
 		return true;

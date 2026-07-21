@@ -57,7 +57,8 @@ class worker{
 	    'autoload',
 	    'default_timezone',
 	    'type',
-	    'memory_limit'
+	    'memory_limit',
+	    'default_app'
 	];
 
 	public static function getWorker(){
@@ -91,9 +92,10 @@ class worker{
 		return array_replace($baseConfig, $overrides);
 	}
 
-	private static function bootApplicationRuntime($worker, array $runtimeConfig, array $processConfig = []):void{
+	private static function bootApplicationRuntime($worker, array $runtimeConfig, array $processConfig = [], $processName = null):void{
 		static::$_worker = $worker;
 		Config::get('app', null, true);
+		Controller::setAppProcess($processName, $processConfig['default_app'] ?? null);
 		$errorTypes = Config::get('app','error_types') ?? E_ALL &~E_NOTICE &~E_STRICT &~E_DEPRECATED;
 		\error_reporting($errorTypes);
 		\set_error_handler(function ($level, $message, $file = '', $line = 0) use ($errorTypes) {
@@ -131,11 +133,11 @@ class worker{
 		}
 	}
 
-	public static function configureWorkermanAppWorker($worker, array $processConfig = []):void{
+	public static function configureWorkermanAppWorker($worker, array $processConfig = [], $processName = null):void{
 		$runtimeConfig = static::mergeAppProcessConfig('workerman', $processConfig);
-		$worker->onWorkerStart = function($worker) use (&$runtimeConfig, $processConfig){
+		$worker->onWorkerStart = function($worker) use (&$runtimeConfig, $processConfig, $processName){
 			$runtimeConfig = static::mergeAppProcessConfig('workerman', $processConfig, true);
-			static::bootApplicationRuntime($worker, $runtimeConfig, $processConfig);
+			static::bootApplicationRuntime($worker, $runtimeConfig, $processConfig, $processName);
 			\register_shutdown_function(function ($startTime) {
 				if(\time() - $startTime <= 1){
 					\sleep(1);
@@ -911,7 +913,7 @@ class worker{
 							break;
 							case 'websocket':case 'http': case 'tcp': case 'https': case 'text':
 								$workerCount = $isAppProcess ? ($pconfig['count'] ?? $pconfig['worker_num'] ?? $config['worker_num'] ?? 1) : ($pconfig['count'] ?? 1);
-								$process[] = ['protocol'=>$workmode,'name'=>$proc_name,'listen'=>$address,'port'=>$port,'workers'=>max(1, (int)$workerCount),'ssl'=>$pconfig['ssl'] ?? ($scheme === 'https'),'app'=>$isAppProcess,'callback'=>function($server,$workid) use ($pconfig,$class,$workmode,$isAppProcess){
+								$process[] = ['protocol'=>$workmode,'name'=>$proc_name,'listen'=>$address,'port'=>$port,'workers'=>max(1, (int)$workerCount),'ssl'=>$pconfig['ssl'] ?? ($scheme === 'https'),'app'=>$isAppProcess,'callback'=>function($server,$workid) use ($pconfig,$class,$workmode,$isAppProcess,$proc_name){
 									$serverConfig = $isAppProcess ? static::mergeAppProcessConfig('swoole', $pconfig, true) : $pconfig;
 									if(isset($serverConfig['context']['ssl']) && $serverConfig['context']['ssl']){
 										$ssl = [];
@@ -954,7 +956,7 @@ class worker{
 
 									if($isAppProcess){
 										$server->set(['open_http_protocol'=>true, 'open_http2_protocol'=>true]);
-										static::bootApplicationRuntime($server, $serverConfig, $pconfig);
+										static::bootApplicationRuntime($server, $serverConfig, $pconfig, $proc_name);
 										return function($request, $response) use ($serverConfig){
 											static::onMessage($response, $request, $serverConfig);
 										};
@@ -1171,7 +1173,7 @@ class worker{
 					if(($appConfig['ssl'] ?? false) === true){
 						$processworker->transport = 'ssl';
 					}
-					static::configureWorkermanAppWorker($processworker, $proc_config);
+					static::configureWorkermanAppWorker($processworker, $proc_config, $proc_name);
 					continue;
 				}
 				if (isset($proc_config['handler'])) {

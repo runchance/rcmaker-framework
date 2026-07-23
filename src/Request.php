@@ -4,7 +4,7 @@ use RC\Config;
 use RC\Session;
 use RC\Response;
 use RC\Helper;
-use Workerman\Protocols\Http;
+use Workerman\Protocols\Http\Session as WorkermanSession;
 class Request{
 	protected static $_frame = null;
 	protected $id = null;
@@ -275,7 +275,7 @@ class Request{
 		}
 		$req = $this->nativeRequest;
 		if($frame=='workerman' && $req){
-			Http::sessionName(Session::sessionName());
+			WorkermanSession::$name = Session::sessionName();
 			return $req->session();
 		}
 		if($frame=='swoole' && $req){

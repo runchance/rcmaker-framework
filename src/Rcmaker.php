@@ -15,6 +15,9 @@
 		public static function start(){
 			static $requests;
 			\rc_apply_memory_limit();
+			if(static::shouldStartInteractive()){
+				exit(\RC\Cli\Interactive::run());
+			}
 			if(defined('IS_SCRIPT')){
 			    $id = 999999;
 		        $requests[$id] = $requests[$id] ?? new Request($id);
@@ -72,6 +75,18 @@
 	        		$responses[$id]->bad($requests[$id],500,$e->getMessage());
 	        	}
 	        }
+		}
+
+		private static function shouldStartInteractive(){
+			if(!IS_CLI){
+				return false;
+			}
+			global $argv;
+			if(strtolower(trim((string)($argv[1] ?? ''))) !== 'interact'){
+				return false;
+			}
+			$entry = strtolower(basename(str_replace('\\', '/', (string)($argv[0] ?? ''))));
+			return in_array($entry, ['index.php', 'windows.php'], true) || PHP_SAPI === 'micro';
 		}
 
 	}

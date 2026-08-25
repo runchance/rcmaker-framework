@@ -47,9 +47,6 @@ final class BuildBinary
         $arch = ArtifactRepository::normalizeArch((string)($options['arch'] ?? 'auto'));
         ArtifactRepository::assertTarget($platform, $arch);
         $encrypt = (bool)($options['encrypt'] ?? false);
-        if ($encrypt) {
-            ArtifactRepository::assertHostTarget($platform, $arch, 'Encrypted build');
-        }
 
         $customIni = self::resolveCustomIni((string)($options['custom-ini'] ?? ''), $rootPath);
         $excludePaths = Filesystem::parseExcludePaths((string)($options['exclude-files'] ?? ''));
@@ -63,7 +60,7 @@ final class BuildBinary
 
         Filesystem::mkdir($buildDir);
         Filesystem::removePath($binaryPath);
-        Filesystem::removePath($pharPath);
+        self::releasePhar($pharPath);
         Filesystem::removePath($stagingDir);
 
         try {
@@ -98,9 +95,11 @@ final class BuildBinary
 
             if ($encrypt) {
                 self::emit($output, 'Encrypt staged project files ...');
-                $beastEntry = ArtifactRepository::beastEntry($platform);
+                $hostPlatform = ArtifactRepository::currentPlatform();
+                $hostArch = ArtifactRepository::normalizeArch('auto');
+                $beastEntry = ArtifactRepository::beastEntry($hostPlatform);
                 $beastPath = $repository->ensure(
-                    ArtifactRepository::beastArchive($platform, $arch),
+                    ArtifactRepository::beastArchive($hostPlatform, $hostArch),
                     $beastEntry,
                     $buildDir . DIRECTORY_SEPARATOR . $beastEntry
                 );
@@ -153,6 +152,7 @@ final class BuildBinary
             throw $throwable;
         }
         fclose($stream);
+        self::releasePhar($pharPath);
 
         if (!rename($temporaryBinary, $binaryPath)) {
             @unlink($temporaryBinary);
@@ -171,6 +171,16 @@ final class BuildBinary
             'php' => $version,
             'encrypted' => $encrypt,
         ];
+    }
+
+    private static function releasePhar(string $pharPath): void
+    {
+        try {
+            Phar::unlinkArchive($pharPath);
+        } catch (Throwable) {
+            Filesystem::removePath($pharPath);
+        }
+        clearstatcache(true, $pharPath);
     }
 
     private static function resolveCustomIni(string $value, string $rootPath): string

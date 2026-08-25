@@ -32,7 +32,6 @@ final class EncryptPhp
         $platform = ArtifactRepository::normalizePlatform((string)($options['platform'] ?? 'auto'));
         $arch = ArtifactRepository::normalizeArch((string)($options['arch'] ?? 'auto'));
         ArtifactRepository::assertTarget($platform, $arch);
-        ArtifactRepository::assertHostTarget($platform, $arch, 'PHP encryption');
 
         $force = (bool)($options['force'] ?? false);
         $buildBinaryOption = trim((string)($options['build-bin'] ?? ''));
@@ -75,9 +74,11 @@ final class EncryptPhp
         $repository = new ArtifactRepository($output);
 
         try {
-            $beastEntry = ArtifactRepository::beastEntry($platform);
+            $hostPlatform = ArtifactRepository::currentPlatform();
+            $hostArch = ArtifactRepository::normalizeArch('auto');
+            $beastEntry = ArtifactRepository::beastEntry($hostPlatform);
             $beastPath = $repository->ensure(
-                ArtifactRepository::beastArchive($platform, $arch),
+                ArtifactRepository::beastArchive($hostPlatform, $hostArch),
                 $beastEntry,
                 $workDir . DIRECTORY_SEPARATOR . $beastEntry
             );
@@ -151,7 +152,11 @@ final class EncryptPhp
                     (string)($options['entry'] ?? ''),
                     self::pharAlias($binaryPath)
                 );
-                self::buildBinary($sfxPath, $pharPath, $binaryPath, $customIni, $force, $platform);
+                try {
+                    self::buildBinary($sfxPath, $pharPath, $binaryPath, $customIni, $force, $platform);
+                } finally {
+                    self::releasePhar($pharPath);
+                }
                 self::emit($output, 'Binary saved to: ' . $binaryPath);
             }
         } finally {
@@ -171,7 +176,7 @@ final class EncryptPhp
 
     private static function buildPhar(string $sourcePath, string $pharPath, string $entry, string $alias): void
     {
-        Filesystem::removePath($pharPath);
+        self::releasePhar($pharPath);
         $phar = new Phar($pharPath, 0, $alias);
         $phar->startBuffering();
         $phar->setSignatureAlgorithm(Phar::SHA256);
@@ -190,6 +195,16 @@ final class EncryptPhp
         );
         $phar->stopBuffering();
         unset($phar);
+    }
+
+    private static function releasePhar(string $pharPath): void
+    {
+        try {
+            Phar::unlinkArchive($pharPath);
+        } catch (Throwable) {
+            Filesystem::removePath($pharPath);
+        }
+        clearstatcache(true, $pharPath);
     }
 
     private static function buildBinary(

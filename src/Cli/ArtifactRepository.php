@@ -84,17 +84,6 @@ final class ArtifactRepository
         }
     }
 
-    public static function assertHostTarget(string $platform, string $arch, string $operation): void
-    {
-        $hostPlatform = self::currentPlatform();
-        $hostArch = self::normalizeArch('auto');
-        if ($platform !== $hostPlatform || $arch !== $hostArch) {
-            throw new RuntimeException(
-                "{$operation} must run on the target platform. Host: {$hostPlatform}/{$hostArch}; target: {$platform}/{$arch}."
-            );
-        }
-    }
-
     public static function runtimeArchive(string $version, string $platform, string $arch): string
     {
         return "php{$version}-{$platform}-{$arch}.zip";

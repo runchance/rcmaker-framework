@@ -13,20 +13,96 @@ final class BuildBinary
     private const WINDOWS_ENTRY = '__rcmaker_windows.php';
 
     private const DEFAULT_EXCLUDE_PREFIXES = [
-        '/official/download',
+        '/.agents',
+        '/.claude',
+        '/.codex',
+        '/.continue',
+        '/.cursor',
+        '/.gemini',
+        '/.github',
+        '/.idea',
+        '/.roo',
+        '/.setting',
+        '/.tmp',
+        '/.vscode',
+        '/build',
+        '/coverage',
+        '/node_modules',
+        '/official',
+        '/runtime',
+        '/scripts',
+        '/test',
+        '/tests',
+        '/tools',
+        '/vendor-bin',
     ];
 
     private const DEFAULT_EXCLUDE_DIRECTORY_NAMES = [
+        '.agents',
+        '.claude',
+        '.codex',
+        '.continue',
+        '.cursor',
+        '.gemini',
         '.git',
         '.github',
+        '.hg',
         '.idea',
+        '.roo',
         '.setting',
         '.svn',
-        '.hg',
-        'runtime',
+        '.vscode',
+        'node_modules',
         'vendor-bin',
-        'build',
-        'scripts',
+    ];
+
+    private const DEFAULT_EXCLUDE_VENDOR_DIRECTORY_NAMES = [
+        'benchmark',
+        'benchmarks',
+        'doc',
+        'docs',
+        'example',
+        'examples',
+        'test',
+        'tests',
+    ];
+
+    private const DEFAULT_EXCLUDE_FILE_NAMES = [
+        '.editorconfig',
+        '.env.example',
+        '.gitattributes',
+        '.gitignore',
+        '.gitmodules',
+        'bun.lock',
+        'bun.lockb',
+        'composer.json',
+        'composer.lock',
+        'compose.yaml',
+        'compose.yml',
+        'docker-compose.yaml',
+        'docker-compose.yml',
+        'dockerfile',
+        'jsconfig.json',
+        'makefile',
+        'package-lock.json',
+        'package.json',
+        'phpstan.neon',
+        'phpstan.neon.dist',
+        'phpunit.xml',
+        'phpunit.xml.dist',
+        'pnpm-lock.yaml',
+        'psalm.xml',
+        'rector.php',
+        'tsconfig.json',
+        'windows.bat',
+        'yarn.lock',
+    ];
+
+    private const DEFAULT_EXCLUDE_EXTENSIONS = [
+        'map',
+        'markdown',
+        'md',
+        'rst',
     ];
 
     public static function execute(string $rootPath, array $options, ?callable $output = null): array
@@ -68,20 +144,12 @@ final class BuildBinary
             Filesystem::copyTree(
                 $rootPath,
                 $stagingDir,
-                static function (string $relativePath) use ($excludePaths, $platform): bool {
-                    if (basename($relativePath) === 'composer.json') {
+                static function (string $relativePath) use ($excludePaths): bool {
+                    if ($relativePath === '/windows.php') {
                         return true;
                     }
-                    if ($platform === 'windows' && $relativePath === '/windows.php') {
+                    if (self::shouldExcludeByDefault($relativePath)) {
                         return true;
-                    }
-                    if (self::containsExcludedDirectory($relativePath)) {
-                        return true;
-                    }
-                    foreach (self::DEFAULT_EXCLUDE_PREFIXES as $prefix) {
-                        if ($relativePath === $prefix || str_starts_with($relativePath, $prefix . '/')) {
-                            return true;
-                        }
                     }
                     return Filesystem::shouldExclude($relativePath, $excludePaths);
                 }
@@ -217,13 +285,43 @@ final class BuildBinary
 
     private static function containsExcludedDirectory(string $relativePath): bool
     {
+        return self::containsDirectoryNamed($relativePath, self::DEFAULT_EXCLUDE_DIRECTORY_NAMES);
+    }
+
+    private static function containsDirectoryNamed(string $relativePath, array $directoryNames): bool
+    {
         $segments = explode('/', trim(str_replace('\\', '/', $relativePath), '/'));
         foreach ($segments as $segment) {
-            if (in_array($segment, self::DEFAULT_EXCLUDE_DIRECTORY_NAMES, true)) {
+            if (in_array(strtolower($segment), $directoryNames, true)) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static function shouldExcludeByDefault(string $relativePath): bool
+    {
+        $relativePath = Filesystem::normalizeRelative($relativePath);
+        if (self::containsExcludedDirectory($relativePath)) {
+            return true;
+        }
+        foreach (self::DEFAULT_EXCLUDE_PREFIXES as $prefix) {
+            if ($relativePath === $prefix || str_starts_with($relativePath, $prefix . '/')) {
+                return true;
+            }
+        }
+        if (str_starts_with($relativePath, '/vendor/')
+            && self::containsDirectoryNamed($relativePath, self::DEFAULT_EXCLUDE_VENDOR_DIRECTORY_NAMES)
+        ) {
+            return true;
+        }
+
+        $fileName = strtolower(basename($relativePath));
+        if (in_array($fileName, self::DEFAULT_EXCLUDE_FILE_NAMES, true)) {
+            return true;
+        }
+        $extension = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+        return $extension !== '' && in_array($extension, self::DEFAULT_EXCLUDE_EXTENSIONS, true);
     }
 
     private static function emit(?callable $output, string $message): void

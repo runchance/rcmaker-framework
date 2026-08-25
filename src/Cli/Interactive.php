@@ -81,7 +81,7 @@ final class Interactive
         $platform = self::platform();
         $arch = self::arch();
         $version = self::phpVersion();
-        $exclude = self::ask('排除文件或目录，多个路径用逗号分隔', '');
+        $exclude = self::ask('额外排除文件或目录，多个路径用逗号分隔', '');
         $encrypt = self::confirm('是否加密项目源码', false);
         $customIni = self::ask('自定义 php.ini 内容或 ini 文件路径', '');
         $options = [
@@ -97,7 +97,7 @@ final class Interactive
             '操作系统' => $platform,
             '架构' => $arch,
             'PHP 版本' => $version,
-            '排除路径' => $exclude !== '' ? $exclude : '无',
+            '额外排除路径' => $exclude !== '' ? $exclude : '无',
             '源码加密' => $encrypt ? '是' : '否',
             '自定义 INI' => $customIni !== '' ? $customIni : '无',
             '执行引擎' => BuildBinary::class,
@@ -117,16 +117,22 @@ final class Interactive
         $input = self::askExistingPath('输入文件或目录');
         $isDirectory = is_dir(Filesystem::normalizedAbsolute($input, self::rootPath()));
         $output = self::askRequired('输出文件或目录', self::defaultEncryptedOutput($input));
-        $platform = self::platform();
-        $arch = self::arch();
-        $version = self::phpVersion();
         $exclude = $isDirectory ? self::ask('排除文件或目录，多个路径用逗号分隔', '') : '';
         $force = self::confirm('目标存在时是否覆盖', false);
         $downloadRuntime = self::confirm('是否同时下载独立 PHP 运行时', false);
+        $buildBin = self::confirm('是否同时生成单文件可执行程序', false);
+        $needsTarget = $downloadRuntime || $buildBin;
+        $platform = 'auto';
+        $arch = 'auto';
+        $version = '8.4';
+        if ($needsTarget) {
+            $platform = self::platform();
+            $arch = self::arch();
+            $version = self::phpVersion();
+        }
         $runtimeOutput = $downloadRuntime
             ? self::ask('独立 PHP 输出路径，留空则写在加密结果旁', '')
             : '';
-        $buildBin = self::confirm('是否同时生成单文件可执行程序', false);
         $buildBinPath = '';
         $entry = '';
         $customIni = '';
@@ -156,18 +162,25 @@ final class Interactive
             'custom-ini' => $customIni,
         ];
 
-        self::summary([
+        $summary = [
             '输入路径' => $input,
             '输出路径' => $output,
-            '操作系统' => $platform,
-            '架构' => $arch,
-            'PHP 版本' => $version,
             '排除路径' => $exclude !== '' ? $exclude : '无',
             '覆盖目标' => $force ? '是' : '否',
+        ];
+        if ($needsTarget) {
+            $summary += [
+                '目标操作系统' => $platform,
+                '目标架构' => $arch,
+                '目标 PHP 版本' => $version,
+            ];
+        }
+        $summary += [
             '下载运行时' => $downloadRuntime ? '是' : '否',
             '生成可执行程序' => $buildBinPath !== '' ? $buildBinPath : '否',
             '执行引擎' => EncryptPhp::class,
-        ]);
+        ];
+        self::summary($summary);
         if (!self::confirm('确认开始加密', true)) {
             self::warning('已取消加密。');
             return;

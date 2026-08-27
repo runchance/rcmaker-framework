@@ -47,10 +47,11 @@ final class Interactive
                 self::option('2', '加密 PHP 文件或目录');
                 self::option('3', '注册或移除 Linux systemd 服务');
                 self::option('4', '生成证书 / Token 签名密钥');
-                self::option('5', '退出');
-                $choice = strtolower(self::ask('请选择功能', '5'));
+                self::option('5', '安装或更新 rcmaker AI DevKit');
+                self::option('6', '退出');
+                $choice = strtolower(self::ask('请选择功能', '6'));
 
-                if (in_array($choice, ['5', '0', 'q', 'quit', 'exit'], true)) {
+                if (in_array($choice, ['6', '0', 'q', 'quit', 'exit'], true)) {
                     self::success('已退出。');
                     return 0;
                 }
@@ -60,7 +61,8 @@ final class Interactive
                         '2' => self::encryptPhp(),
                         '3' => self::manageSystemd(),
                         '4' => self::generateTokenKey(),
-                        default => self::warning('请输入 1 - 5。'),
+                        '5' => self::manageAiDevkit(),
+                        default => self::warning('请输入 1 - 6。'),
                     };
                 } catch (InteractiveInputClosed $closed) {
                     throw $closed;
@@ -283,6 +285,49 @@ final class Interactive
         self::success('密钥生成完成：' . $result['algorithm']);
     }
 
+    private static function manageAiDevkit(): void
+    {
+        self::section('rcmaker AI DevKit');
+        $rootPath = self::rootPath();
+        $installedVersion = AiDevkit::installedVersion($rootPath);
+        $offlineArchive = AiDevkit::offlineArchivePath($rootPath);
+        $hasOfflineArchive = is_file($offlineArchive);
+
+        self::summary([
+            '当前版本' => $installedVersion ?? (AiDevkit::hasManifest($rootPath) ? '无法识别' : '未安装'),
+            '安装来源' => $hasOfflineArchive ? '项目根目录离线包' : 'GitHub 最新 Release',
+            '离线包路径' => $offlineArchive,
+        ]);
+        self::line('同名文件更新前会备份到 data/rcmaker-ai-devkit-backup/。', self::DIM);
+        if (!self::confirm($installedVersion === null ? '确认安装 AI DevKit' : '确认检查并更新 AI DevKit', true)) {
+            self::warning('已取消 AI DevKit 操作。');
+            return;
+        }
+
+        try {
+            $result = AiDevkit::install($rootPath, self::outputCallback());
+        } catch (AiDevkitDownloadException $exception) {
+            self::warning('无法从 GitHub 下载 rcmaker AI DevKit。');
+            self::line('原因：' . $exception->getMessage());
+            self::line('请离线下载：' . AiDevkit::DOWNLOAD_URL);
+            self::line('将文件保存为：' . $offlineArchive);
+            self::line('然后重新运行 php index.php interact，选择本功能即可安装。');
+            return;
+        }
+
+        self::success('rcmaker AI DevKit 已安装：v' . $result['version']);
+        self::line(
+            '  新增 ' . $result['installed'] . ' 个，更新 ' . $result['updated']
+            . ' 个，未变化 ' . $result['unchanged'] . ' 个。'
+        );
+        if ($result['backup'] !== null) {
+            self::info('原文件备份：' . $result['backup']);
+        }
+        if ($result['source'] === 'offline') {
+            self::info('离线包已保留，可确认安装结果后手动删除：' . $offlineArchive);
+        }
+    }
+
     private static function relaunchWithWritablePhar(): int
     {
         if (PHP_BINARY === '') {
@@ -491,6 +536,9 @@ final class Interactive
         self::line('交互式项目工具', self::BOLD);
         self::line('项目：' . self::rootPath(), self::DIM);
         self::line('环境：' . PHP_OS_FAMILY . ' / ' . php_uname('m') . ' / PHP ' . PHP_VERSION, self::DIM);
+        $devkitVersion = AiDevkit::installedVersion(self::rootPath());
+        $devkitStatus = $devkitVersion ?? (AiDevkit::hasManifest(self::rootPath()) ? '版本无法识别' : '未安装');
+        self::line('AI DevKit：' . $devkitStatus, self::DIM);
     }
 
     private static function section(string $title): void

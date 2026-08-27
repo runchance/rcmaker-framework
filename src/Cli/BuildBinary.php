@@ -25,6 +25,7 @@ final class BuildBinary
         '/.vscode',
         '/build',
         '/coverage',
+        '/data',
         '/node_modules',
         '/official',
         '/runtime',

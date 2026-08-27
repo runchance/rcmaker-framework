@@ -122,7 +122,7 @@ final class ArtifactRepository
         $url = self::BASE_URL . '/' . rawurlencode($archiveName);
         $this->emit('Downloading ' . $url . ' ...');
         try {
-            $this->download($url, $archivePath);
+            $this->downloadFile($url, $archivePath);
             $this->extractSingleFile($archivePath, $expectedEntry, $targetPath);
         } finally {
             if (is_file($archivePath)) {
@@ -132,7 +132,10 @@ final class ArtifactRepository
         return $targetPath;
     }
 
-    private function download(string $url, string $targetPath): void
+    /**
+     * Download an artifact to a local file using cURL or PHP streams.
+     */
+    public function downloadFile(string $url, string $targetPath): void
     {
         Filesystem::mkdir(dirname($targetPath));
         $output = fopen($targetPath, 'wb');

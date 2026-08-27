@@ -808,17 +808,17 @@ function runtime_path(){
 
 function ssl_path(){
     $path = Config::get('app','ssl_path');
-    return ($path !== null && $path !== '') ? $path : phar_path()."/ssl";
+    return ($path !== null && $path !== '') ? $path : BASE_PATH."/ssl";
 }
 
 function public_path(){
     $path = Config::get('app','public_path');
-    return ($path !== null && $path !== '') ? $path : phar_path()."/public";
+    return ($path !== null && $path !== '') ? $path : BASE_PATH."/public";
 }
 
 function view_path(){
     $path = Config::get('app','view_path');
-    return ($path !== null && $path !== '') ? $path : phar_path()."/view";
+    return ($path !== null && $path !== '') ? $path : BASE_PATH."/view";
 }
 
 function worker_bind($worker, $class, $type='workerman') {

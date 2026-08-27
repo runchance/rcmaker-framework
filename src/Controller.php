@@ -123,6 +123,9 @@ class Controller{
 		if(!is_string($path) || $path === ''){
 			return false;
 		}
+		if(self::isPharStaticPath($path)){
+			return true;
+		}
 		if($path[0] === '/' || $path[0] === '\\'){
 			return true;
 		}
@@ -131,13 +134,42 @@ class Controller{
 
 	private static function resolveDocumentRoot($documentRoot){
 		if(!is_string($documentRoot) || trim($documentRoot) === ''){
-			return BASE_PATH . '/public';
+			return public_path();
 		}
 		$documentRoot = trim($documentRoot);
 		if(self::isAbsolutePath($documentRoot)){
 			return $documentRoot;
 		}
 		return rtrim(public_path(), '/\\') . '/' . trim(str_replace('\\', '/', $documentRoot), '/');
+	}
+
+	private static function isPharStaticPath($path){
+		return is_string($path) && stripos(str_replace('\\', '/', $path), 'phar://') === 0;
+	}
+
+	private static function normalizePharStaticPath($path){
+		$path = str_replace('\\', '/', (string)$path);
+		$relative = substr($path, strlen('phar://'));
+		$segments = [];
+		foreach(explode('/', $relative) as $segment){
+			if($segment === '' || $segment === '.'){
+				continue;
+			}
+			if($segment === '..'){
+				array_pop($segments);
+				continue;
+			}
+			$segments[] = $segment;
+		}
+		return 'phar://' . implode('/', $segments);
+	}
+
+	private static function canonicalStaticPath($path){
+		if(self::isPharStaticPath($path)){
+			$path = self::normalizePharStaticPath($path);
+			return file_exists($path) ? $path : false;
+		}
+		return realpath($path);
 	}
 
 	private static function isStaticGzipEnabled($config){
@@ -230,15 +262,22 @@ class Controller{
 		];
 	}
 
-	private static function preloadStaticDirectory($documentRoot, $config){
-		$documentRoot = realpath($documentRoot);
+	private static function staticPreloadAppName($appName){
+		$appName = preg_replace('/[\x00-\x1F\x7F]+/', '', (string)$appName);
+		$appName = preg_replace('/\s+/', '_', trim((string)$appName));
+		return $appName === '' ? 'default' : substr($appName, 0, 100);
+	}
+
+	private static function preloadStaticDirectory($documentRoot, $config, $appName = 'default'){
+		$documentRoot = self::canonicalStaticPath($documentRoot);
 		if($documentRoot === false || isset(self::$_staticMemory[$documentRoot])){
 			return;
 		}
+		$appName = self::staticPreloadAppName($appName);
 		self::$_staticMemory[$documentRoot] = [];
 		$started = microtime(true);
 		$timeLimit = self::getStaticPreloadTimeLimit($config);
-		echo '[static-preload] start ' . $documentRoot . ' limit=' . $timeLimit . 's' . PHP_EOL;
+		echo '[static-preload] start app=' . $appName . ' limit=' . $timeLimit . 's' . PHP_EOL;
 		$loaded = 0;
 		$iterator = new \RecursiveIteratorIterator(
 			new \RecursiveDirectoryIterator($documentRoot, \FilesystemIterator::SKIP_DOTS),
@@ -246,13 +285,16 @@ class Controller{
 		);
 		foreach($iterator as $item){
 			if($timeLimit > 0 && (microtime(true) - $started) >= $timeLimit){
-				echo '[static-preload] stop ' . $documentRoot . ' reason=time_limit loaded=' . $loaded . ' elapsed=' . round(microtime(true) - $started, 4) . 's' . PHP_EOL;
+				echo '[static-preload] stop app=' . $appName . ' reason=time_limit loaded=' . $loaded . ' elapsed=' . round(microtime(true) - $started, 4) . 's' . PHP_EOL;
 				break;
 			}
 			if(!$item->isFile()){
 				continue;
 			}
-			$file = $item->getPathname();
+			$file = self::canonicalStaticPath($item->getPathname());
+			if($file === false){
+				continue;
+			}
 			if(!self::shouldPreloadStaticFile($file, $config)){
 				continue;
 			}
@@ -262,15 +304,15 @@ class Controller{
 				$loaded++;
 			}
 		}
-		echo '[static-preload] done ' . $documentRoot . ' loaded=' . $loaded . ' elapsed=' . round(microtime(true) - $started, 4) . 's' . PHP_EOL;
+		echo '[static-preload] done app=' . $appName . ' loaded=' . $loaded . ' elapsed=' . round(microtime(true) - $started, 4) . 's' . PHP_EOL;
 	}
 
 	private static function getPreloadedStaticEntry($config, $file){
 		if(!self::isStaticPreloadEnabled($config)){
 			return null;
 		}
-		$documentRoot = realpath(self::resolveDocumentRoot($config['document_root'] ?? ''));
-		$file = realpath($file);
+		$documentRoot = self::canonicalStaticPath(self::resolveDocumentRoot($config['document_root'] ?? ''));
+		$file = self::canonicalStaticPath($file);
 		if($documentRoot === false || $file === false){
 			return null;
 		}
@@ -293,9 +335,12 @@ class Controller{
 		}
 		$configs = [];
 		if((!$processScoped || $processName === null) && self::isStaticPreloadEnabled($conf)){
-			$configs[] = $conf;
+			$configs[] = [
+				'app' => $conf['default_app'] ?? 'index',
+				'config' => $conf,
+			];
 		}
-		foreach(($conf['app'] ?? []) as $appconf){
+		foreach(($conf['app'] ?? []) as $appName => $appconf){
 			if(!is_array($appconf)){
 				continue;
 			}
@@ -306,17 +351,21 @@ class Controller{
 			}
 			$merged = array_merge($conf, $appconf);
 			if(self::isStaticPreloadEnabled($merged)){
-				$configs[] = $merged;
+				$configs[] = [
+					'app' => $appName,
+					'config' => $merged,
+				];
 			}
 		}
 		$warmedRoots = [];
-		foreach($configs as $config){
+		foreach($configs as $item){
+			$config = $item['config'];
 			$documentRoot = self::resolveDocumentRoot($config['document_root'] ?? '');
-			$realRoot = realpath($documentRoot);
+			$realRoot = self::canonicalStaticPath($documentRoot);
 			if($realRoot === false || isset($warmedRoots[$realRoot])){
 				continue;
 			}
-			self::preloadStaticDirectory($realRoot, $config);
+			self::preloadStaticDirectory($realRoot, $config, $item['app']);
 			$warmedRoots[$realRoot] = true;
 		}
 	}
@@ -380,16 +429,18 @@ class Controller{
 	}
 
 	private static function isPathInBase($path, $basePath){
-		$path = realpath($path);
-		$basePath = realpath($basePath);
+		$path = self::canonicalStaticPath($path);
+		$basePath = self::canonicalStaticPath($basePath);
 		if($path === false || $basePath === false){
 			return false;
 		}
-		if(IS_WIN){
+		$isPharPath = self::isPharStaticPath($path) || self::isPharStaticPath($basePath);
+		if(IS_WIN && !$isPharPath){
 			$path = strtolower($path);
 			$basePath = strtolower($basePath);
 		}
-		return $path === $basePath || strpos($path, $basePath . DIRECTORY_SEPARATOR) === 0;
+		$separator = $isPharPath ? '/' : DIRECTORY_SEPARATOR;
+		return $path === $basePath || strpos($path, rtrim($basePath, '/\\') . $separator) === 0;
 	}
 
 	private static function getAppNamespace($app){
@@ -611,6 +662,17 @@ class Controller{
 		if (!\is_file($file)) {
 			return new ResponseObj($request, 404, [], '404 Not Found');
 		}
+		if(self::isPharStaticPath($file)){
+			$body = @file_get_contents($file);
+			if(!is_string($body)){
+				return new ResponseObj($request, 404, [], '404 Not Found');
+			}
+			$headers = ['Content-Type' => self::getStaticContentType($file)];
+			if($mtime = @filemtime($file)){
+				$headers['Last-Modified'] = gmdate('D, d M Y H:i:s', $mtime) . ' GMT';
+			}
+			return new ResponseObj($request, 200, $headers, $body);
+		}
 		return (new ResponseObj($request))->file($file);
 	}
 
@@ -629,11 +691,14 @@ class Controller{
 		if (false === $file || false === \is_file($file)) {
             return false;
         }
-		if (!is_phar() && !self::isPathInBase($file, $document_root)) {
+		if (!self::isPathInBase($file, $document_root)) {
             $response->bad($request,'400');
             return true;
         }
-		$file = realpath($file);
+		$file = self::canonicalStaticPath($file);
+		if($file === false){
+			return false;
+		}
         $ext = \pathinfo($file, PATHINFO_EXTENSION);
 	    if ($ext === 'php') {
 	    	if($path=='/index.php'){

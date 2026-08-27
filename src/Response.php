@@ -253,7 +253,7 @@ class Response{
 
 	public function bad($request,$status=404,$e='404 Not Found'){
 		$this->_status = $status;
-		$badfile = BASE_PATH . '/public/'.$status.'.html';
+		$badfile = rtrim(public_path(), '/\\') . '/'.$status.'.html';
 		if(static::$_frame=='workerman'){
 			$this->log_list();
 			if(is_file($badfile)){

@@ -13,6 +13,7 @@ use Workerman\Protocols\Http;
 use Workerman\Connection\TcpConnection;
 use RC\Helper\GlobalData\Server as GlobalDataServer;
 use RC\Stopwatch;
+use RC\Cli\Banner;
 class worker{
 	protected static $_frame = null;
 	protected static $_worker = null;
@@ -230,7 +231,7 @@ class worker{
 	}
 
 	private static function shouldPrintCustomCliBanner(){
-		if(Config::get('app','cli_banner')===false){
+		if(!Banner::enabled()){
 			return false;
 		}
 		global $argv;
@@ -239,25 +240,6 @@ class worker{
 		}
 		$command = strtolower(trim((string)$argv[1]));
 		return in_array($command, ['start', 'restart'], true);
-	}
-
-	private static function rcmakerVersion(){
-		if(class_exists('\Composer\InstalledVersions') && \Composer\InstalledVersions::isInstalled('runchance/rcmaker-framework')){
-			$version = \Composer\InstalledVersions::getPrettyVersion('runchance/rcmaker-framework') ?: '';
-			return str_replace('+no-version-set', '', $version);
-		}
-		return defined('VER') ? (string)VER : 'unknown';
-	}
-
-	private static function currentCliUser(){
-		if(function_exists('posix_getpwuid') && function_exists('posix_getuid')){
-			$userInfo = @posix_getpwuid(posix_getuid());
-			if(is_array($userInfo) && !empty($userInfo['name'])){
-				return (string)$userInfo['name'];
-			}
-		}
-		$user = get_current_user();
-		return $user !== '' ? $user : 'unknown';
 	}
 
 	private static function resolveWorkermanEventLoopClass(){
@@ -282,46 +264,6 @@ class worker{
 		return static::resolveWorkermanEventLoopClass();
 	}
 
-	private static function printCustomCliBanner(){
-		echo "----------------------------------------------- RCMAKER ------------------------------------------------" . PHP_EOL;
-		echo 'Rcmaker version:' . static::rcmakerVersion() . '          PHP version:' . PHP_VERSION . PHP_EOL;
-		echo 'Workerman version:' . Workerman::VERSION . '         Event-Loop:' . static::workermanEventLoopName() . PHP_EOL;
-		echo "----------------------------------------------- WORKERS ------------------------------------------------" . PHP_EOL;
-		echo "proto   user            worker          listen                 processes    status" . PHP_EOL;
-	}
-
-	private static function printCustomCliWorkerLine($proto, $user, $name, $listen, $count, $status='[OK]'){
-		$proto = (string)$proto;
-		$user = (string)$user;
-		$name = (string)$name;
-		$listen = (string)$listen;
-		$count = (string)$count;
-		$status = (string)$status;
-		echo str_pad($proto, 8) . str_pad($user, 16) . str_pad($name, 16) . str_pad($listen, 23) . str_pad($count, 13) . $status . PHP_EOL;
-	}
-
-	private static function printCustomCliWorkers($start_app, $workerConfig, $processConfig){
-		$user = static::currentCliUser();
-		if($start_app && $workerConfig){
-			$name = $workerConfig['name'] ?? 'RC_workerman';
-			$listen = $workerConfig['listen'] ?? 'none';
-			$proto = $workerConfig['transport'] ?? 'tcp';
-			$count = $workerConfig['count'] ?? cpu_count();
-			static::printCustomCliWorkerLine($proto, $user, $name, $listen, $count);
-		}
-		foreach(($processConfig ?? []) as $proc_name => $config){
-			if(!is_array($config) || (!isset($config['handler']) && !static::isAppProcessConfig($config))){
-				continue;
-			}
-			$name = $config['name'] ?? $proc_name;
-			$listen = $config['listen'] ?? 'none';
-			$proto = $config['transport'] ?? 'tcp';
-			$count = $config['count'] ?? 1;
-			static::printCustomCliWorkerLine($proto, $user, $name, $listen, $count);
-		}
-		echo str_repeat('-', 96) . PHP_EOL;
-	}
-
 	private static function prepareWorkermanCliOutput($start_app, $workerConfig, $processConfig){
 		if(!static::shouldPrintCustomCliBanner()){
 			return;
@@ -330,8 +272,25 @@ class worker{
 		if(!in_array('-q', $argv, true)){
 			$argv[] = '-q';
 		}
-		static::printCustomCliBanner();
-		static::printCustomCliWorkers($start_app, $workerConfig, $processConfig);
+		Banner::output([
+			'runtime.name' => 'Workerman',
+			'runtime.version' => Workerman::VERSION,
+			'event_loop' => static::workermanEventLoopName(),
+		], Banner::workersFromConfig((bool)$start_app, (array)$workerConfig, (array)$processConfig));
+	}
+
+	private static function prepareSwooleCliOutput($startApp, $runtimeConfig, $processConfig, $poolProcesses = []){
+		if(!static::shouldPrintCustomCliBanner()){
+			return;
+		}
+		$workers = $poolProcesses
+			? Banner::workersFromSwoolePool((array)$poolProcesses)
+			: Banner::workersFromConfig((bool)$startApp, (array)$runtimeConfig, (array)$processConfig, 'Swoole');
+		Banner::output([
+			'runtime.name' => 'Swoole',
+			'runtime.version' => function_exists('swoole_version') ? swoole_version() : (defined('SWOOLE_VERSION') ? SWOOLE_VERSION : 'unknown'),
+			'event_loop' => !empty($runtimeConfig['coroutine']) ? 'Swoole Coroutine' : 'Swoole',
+		], $workers);
 	}
 
 	
@@ -692,6 +651,8 @@ class worker{
 					}
 				}
 
+				static::prepareSwooleCliOutput($start_app, $config, $process_config);
+
 				$server->on('AfterReload', function () {
 					//opcache_clean();
 					
@@ -707,14 +668,14 @@ class worker{
 
 				$server->on('start',function() use ($config,$process,$processes,$start_app){
 					swoole_set_process_name($config['name']);
-					if($start_app){
-						echo "Http(s) Server [".$config['name']."] [".$config['listen'].":".$config['port']."] Is Started\r\n";
+					if(!static::shouldPrintCustomCliBanner()){
+						if($start_app){
+							echo "Http(s) Server [".$config['name']."] [".$config['listen'].":".$config['port']."] Is Started\r\n";
+						}
+						foreach($processes as $process){
+							echo 'process ['.$process[0].'] ['.$process[1].'] Is Started'."\r\n";
+						}
 					}
-					
-					foreach($processes as $process){
-						echo 'process ['.$process[0].'] ['.$process[1].'] Is Started'."\r\n";
-					}
-					
 				});
 				$server->on('WorkerStop',function($server,$workid){
 					
@@ -982,6 +943,8 @@ class worker{
 
 
 
+				static::prepareSwooleCliOutput($start_app, $config, $process_config, $process);
+
 				$process_counts = array_sum(array_column($process,'workers'));
 				if($process_counts <= 0){
 					exit("\033[31;40mno swoole coroutine process found!\033[0m\n");
@@ -1016,8 +979,10 @@ class worker{
 					if($config['daemonize']===true){
 						\file_put_contents($config['pid_file'],$server->master_pid,LOCK_EX);
 					}
-					foreach($process as $proc){
-						echo ''.$proc['protocol'].' Coroutine Server ['.$proc['name'].'] processes ['.$proc['workers'].'] '.(isset($proc['listen']) ? '['.$proc['listen'].':'.$proc['port'].']' : '['.$proc['protocol'].']').' Is Started'."\r\n";
+					if(!static::shouldPrintCustomCliBanner()){
+						foreach($process as $proc){
+							echo ''.$proc['protocol'].' Coroutine Server ['.$proc['name'].'] processes ['.$proc['workers'].'] '.(isset($proc['listen']) ? '['.$proc['listen'].':'.$proc['port'].']' : '['.$proc['protocol'].']').' Is Started'."\r\n";
+						}
 					}
 				});
 				$pool->on('workerStart', function ($pool, $workid) use ($process,$config){

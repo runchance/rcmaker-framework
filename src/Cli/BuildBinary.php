@@ -10,8 +10,6 @@ use Throwable;
 
 final class BuildBinary
 {
-    private const WINDOWS_ENTRY = '__rcmaker_windows.php';
-
     private const DEFAULT_EXCLUDE_PREFIXES = [
         '/.agents',
         '/.claude',
@@ -95,6 +93,7 @@ final class BuildBinary
         'rector.php',
         'tsconfig.json',
         'windows.bat',
+        'windows.php',
         'yarn.lock',
     ];
 
@@ -131,7 +130,7 @@ final class BuildBinary
         $pharPath = $buildDir . DIRECTORY_SEPARATOR . 'rcmaker.phar';
         $binaryName = $platform === 'windows' ? 'rcmaker.exe' : 'rcmaker.bin';
         $binaryPath = $buildDir . DIRECTORY_SEPARATOR . $binaryName;
-        $entryFile = $platform === 'windows' ? self::WINDOWS_ENTRY : 'index.php';
+        $entryFile = 'index.php';
         $repository = new ArtifactRepository($output);
 
         Filesystem::mkdir($buildDir);
@@ -145,18 +144,12 @@ final class BuildBinary
                 $rootPath,
                 $stagingDir,
                 static function (string $relativePath) use ($excludePaths): bool {
-                    if ($relativePath === '/windows.php') {
-                        return true;
-                    }
                     if (self::shouldExcludeByDefault($relativePath)) {
                         return true;
                     }
                     return Filesystem::shouldExclude($relativePath, $excludePaths);
                 }
             );
-            if ($platform === 'windows') {
-                self::installWindowsEntry($stagingDir);
-            }
             if (!is_file($stagingDir . DIRECTORY_SEPARATOR . $entryFile)) {
                 throw new RuntimeException("Build entry {$entryFile} is missing or excluded.");
             }
@@ -268,19 +261,6 @@ final class BuildBinary
             return $contents;
         }
         return str_replace(';', "\n", $value);
-    }
-
-    private static function installWindowsEntry(string $stagingDir): void
-    {
-        $source = __DIR__ . DIRECTORY_SEPARATOR . 'resources' . DIRECTORY_SEPARATOR . 'windows-entry.php';
-        if (!is_file($source)) {
-            throw new RuntimeException('Framework Windows build entry is missing: ' . $source);
-        }
-
-        $target = $stagingDir . DIRECTORY_SEPARATOR . self::WINDOWS_ENTRY;
-        if (!copy($source, $target)) {
-            throw new RuntimeException('Failed to install the framework Windows build entry.');
-        }
     }
 
     private static function containsExcludedDirectory(string $relativePath): bool

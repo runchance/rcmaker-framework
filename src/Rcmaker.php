@@ -18,6 +18,9 @@
 			if(static::shouldStartInteractive()){
 				exit(\RC\Cli\Interactive::run());
 			}
+			if(\RC\Cli\WindowsRuntime::shouldHandle()){
+				exit(\RC\Cli\WindowsRuntime::run());
+			}
 			if(defined('IS_SCRIPT')){
 			    $id = 999999;
 		        $requests[$id] = $requests[$id] ?? new Request($id);

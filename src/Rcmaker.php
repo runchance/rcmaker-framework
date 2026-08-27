@@ -14,6 +14,7 @@
 	class Rcmaker{
 		public static function start(){
 			static $requests;
+			static::prepareBinaryCli();
 			\rc_apply_memory_limit();
 			if(static::shouldStartInteractive()){
 				exit(\RC\Cli\Interactive::run());
@@ -90,6 +91,40 @@
 			}
 			$entry = strtolower(basename(str_replace('\\', '/', (string)($argv[0] ?? ''))));
 			return in_array($entry, ['index.php', 'windows.php'], true) || PHP_SAPI === 'micro';
+		}
+
+		/**
+		 * Prepares the standalone Micro executable before command dispatch.
+		 *
+		 * A binary launched without arguments behaves like `start`. On Windows,
+		 * the process codepage is switched to UTF-8 before any Banner is printed.
+		 */
+		private static function prepareBinaryCli(){
+			if(!IS_CLI || PHP_SAPI !== 'micro'){
+				return;
+			}
+			if(PHP_OS_FAMILY === 'Windows' && function_exists('sapi_windows_cp_set')){
+				@\sapi_windows_cp_set(65001);
+			}
+
+			global $argv, $argc;
+			if(!static::shouldDefaultBinaryToStart(PHP_SAPI, $argv[1] ?? '')){
+				return;
+			}
+			if(!is_array($argv)){
+				$argv = [$_SERVER['SCRIPT_FILENAME'] ?? 'rcmaker'];
+			}
+			$argv[1] = 'start';
+			$argc = count($argv);
+			$_SERVER['argv'] = $argv;
+			$_SERVER['argc'] = $argc;
+		}
+
+		/**
+		 * Returns whether a CLI invocation needs the standalone default command.
+		 */
+		private static function shouldDefaultBinaryToStart($sapi, $command){
+			return $sapi === 'micro' && trim((string)$command) === '';
 		}
 
 	}

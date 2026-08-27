@@ -116,6 +116,7 @@ final class WindowsRuntime
                 self::childCommand($command['mode'], $command['name'])
             );
         }
+        self::applyConsoleTitle();
 
         fwrite(STDOUT, PHP_EOL);
         while (true) {
@@ -203,6 +204,7 @@ final class WindowsRuntime
 
         $class = self::resolveProcessClass((string)$processConfig['handler']);
         $processWorker->onWorkerStart = static function (Worker $activeWorker) use ($processConfig, $class): void {
+            self::applyConsoleTitle();
             foreach (($processConfig['bootstrap'] ?? []) as $bootstrap) {
                 $bootstrap::start();
             }
@@ -431,6 +433,7 @@ final class WindowsRuntime
                 self::childCommand($command['mode'], $command['name'])
             );
         }
+        self::applyConsoleTitle();
         fwrite(STDOUT, PHP_EOL);
     }
 
@@ -537,6 +540,7 @@ final class WindowsRuntime
     {
         $onWorkerStart = $worker->onWorkerStart;
         $worker->onWorkerStart = static function (Worker $activeWorker) use ($onWorkerStart, $processName): void {
+            self::applyConsoleTitle();
             Controller::warmupStaticPreloadForProcess($processName);
             if (is_callable($onWorkerStart)) {
                 $onWorkerStart($activeWorker);
@@ -550,6 +554,23 @@ final class WindowsRuntime
     private static function applyErrorTypes(): void
     {
         error_reporting(Config::get('app', 'error_types') ?? (E_ALL & ~E_NOTICE & ~E_STRICT & ~E_DEPRECATED));
+    }
+
+    /**
+     * Replaces Workerman's Windows console title after runtime initialization.
+     */
+    private static function applyConsoleTitle(): void
+    {
+        if (!Banner::enabled() || !function_exists('cli_set_process_title')) {
+            return;
+        }
+        $title = Banner::consoleTitle([
+            'runtime.name' => 'Workerman',
+            'runtime.version' => Worker::VERSION,
+        ]);
+        if ($title !== '') {
+            @cli_set_process_title($title);
+        }
     }
 
     /**

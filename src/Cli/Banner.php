@@ -91,6 +91,25 @@ final class Banner
     }
 
     /**
+     * Builds the Windows console title from developer-owned Banner config.
+     *
+     * Set window_title=false to leave the runtime title unchanged. The same
+     * placeholders used by Banner lines are available in the title template.
+     */
+    public static function consoleTitle(array $context = [], ?array $config = null): string
+    {
+        $config ??= self::loadConfig();
+        if (($config['window_title'] ?? null) === false) {
+            return '';
+        }
+        $template = (string)($config['window_title'] ?? '{app.name}: master process');
+        $title = self::replace($template, self::context($context, [], $config));
+        $title = preg_replace('/[\x00-\x1F\x7F]+/', ' ', self::sanitize($title)) ?? $title;
+        $title = preg_replace('/\s+/u', ' ', trim($title)) ?? trim($title);
+        return function_exists('mb_strcut') ? mb_strcut($title, 0, 200, 'UTF-8') : substr($title, 0, 200);
+    }
+
+    /**
      * Hides Workerman's unavoidable Windows child startup row.
      *
      * Workerman 4.x and 5.x still print one worker row in Windows child mode

@@ -148,20 +148,27 @@ class Controller{
 	}
 
 	private static function normalizePharStaticPath($path){
-		$path = str_replace('\\', '/', (string)$path);
+		$path = str_replace('\\', '/', (string) $path);
 		$relative = substr($path, strlen('phar://'));
+		// Preserve the leading slash of an absolute Unix PHAR path.
+		// 保留 Unix PHAR 绝对路径的前导斜杠。
+		$isUnixAbsolute = str_starts_with($relative, '/');
 		$segments = [];
-		foreach(explode('/', $relative) as $segment){
-			if($segment === '' || $segment === '.'){
+		foreach (explode('/', $relative) as $segment) {
+			if ($segment === '' || $segment === '.') {
 				continue;
 			}
-			if($segment === '..'){
+
+			if ($segment === '..') {
 				array_pop($segments);
 				continue;
 			}
+
 			$segments[] = $segment;
 		}
-		return 'phar://' . implode('/', $segments);
+		return 'phar://'
+			. ($isUnixAbsolute ? '/' : '')
+			. implode('/', $segments);
 	}
 
 	private static function canonicalStaticPath($path){

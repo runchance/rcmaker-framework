@@ -100,7 +100,7 @@ SERVICE;
 
         $contents = str_replace(
             ['{name}', '{command}', '{workingDirectory}', '{user}', '{group}'],
-            [$name, $command, self::quote($rootPath), $user, $group],
+            [$name, $command, self::workingDirectory($rootPath), $user, $group],
             self::TEMPLATE
         ) . "\n";
         if (preg_match('/\{[a-zA-Z]+\}/', $contents)) {
@@ -125,7 +125,25 @@ SERVICE;
 
     private static function quote(string $value): string
     {
-        return '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], $value) . '"';
+        if ($value === '' || preg_match('/[\x00\r\n]/', $value)) {
+            throw new RuntimeException('Invalid path in systemd command.');
+        }
+        return '"' . str_replace(['\\', '"', '%'], ['\\\\', '\\"', '%%'], $value) . '"';
+    }
+
+    /**
+     * WorkingDirectory is a path directive, not an Exec command line. Quotes
+     * would become part of the path on systemd versions that parse it directly.
+     */
+    private static function workingDirectory(string $path): string
+    {
+        if (!str_starts_with($path, '/')) {
+            throw new RuntimeException('systemd working directory must be an absolute path: ' . $path);
+        }
+        if (preg_match('/[\x00-\x20\x7f"\\\\]/', $path)) {
+            throw new RuntimeException('systemd working directory cannot contain whitespace, quotes or backslashes: ' . $path);
+        }
+        return str_replace('%', '%%', $path);
     }
 
     private static function emit(?callable $output, string $message): void

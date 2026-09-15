@@ -407,6 +407,59 @@ class CaptchaBuilder implements CaptchaBuilderInterface
     }
 
     /**
+     * Give FreeType a real path for a PHAR font, preserving the original TTF bytes.
+     * Called by build(); ordinary filesystem fonts are returned unchanged.
+     * @return string
+     * @throws Exception If the bundled font cannot be read or cached.
+     */
+    protected function resolveFontPath($font)
+    {
+        if (!str_starts_with($font, 'phar://')) {
+            return $font;
+        }
+        $contents = @file_get_contents($font);
+        if ($contents === false || $contents === '') {
+            throw new Exception('Could not read bundled captcha font');
+        }
+        $directory = rtrim(\runtime_path(), '/\\') . '/captcha-fonts';
+        if (!is_dir($directory) && !@mkdir($directory, 0700, true) && !is_dir($directory)) {
+            throw new Exception('Could not create captcha font cache directory');
+        }
+        $hash = hash('sha256', $contents);
+        $cachedFont = $directory . '/' . $hash . '.ttf';
+        if (is_file($cachedFont) && @hash_file('sha256', $cachedFont) === $hash) {
+            return $cachedFont;
+        }
+        // Serialize first publication (Windows cannot replace a font already open in FreeType).
+        $lock = @fopen($cachedFont . '.lock', 'c');
+        if ($lock === false) {
+            throw new Exception('Could not open captcha font cache lock');
+        }
+        try {
+            if (!flock($lock, LOCK_EX)) {
+                throw new Exception('Could not lock captcha font cache');
+            }
+            if (is_file($cachedFont) && @hash_file('sha256', $cachedFont) === $hash) {
+                return $cachedFont;
+            }
+            $temporary = $cachedFont . '.' . bin2hex(random_bytes(8)) . '.tmp';
+            if (@file_put_contents($temporary, $contents) !== strlen($contents)) {
+                throw new Exception('Could not write captcha font cache');
+            }
+            if (!@rename($temporary, $cachedFont) && @hash_file('sha256', $cachedFont) !== $hash) {
+                throw new Exception('Could not publish captcha font cache');
+            }
+        } finally {
+            if (isset($temporary) && is_file($temporary)) {
+                @unlink($temporary);
+            }
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+        return $cachedFont;
+    }
+
+    /**
      * Generate the image
      */
     public function build($width = 150, $height = 40, $font = null, $fingerprint = null)
@@ -422,6 +475,7 @@ class CaptchaBuilder implements CaptchaBuilderInterface
         if ($font === null) {
             $font = __DIR__ . '/Font/captcha'.$this->rand(0, 5).'.ttf';
         }
+        $font = $this->resolveFontPath($font);
 
         if (empty($this->backgroundImages)) {
             // if background images list is not set, use a color fill as a background
